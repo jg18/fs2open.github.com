@@ -1087,6 +1087,53 @@ void Editor::setActiveViewport(EditorViewport* viewport) {
 	_lastActiveViewport = viewport;
 }
 
+Editor::VoiceActingManagerSettings::VoiceActingManagerSettings()
+	:  _replaceFilenames(true),
+	_useSenderInFilename(false),
+	_extensionIndex(0),
+	_exportSelection(ExportOption::Everything),
+	_groupMessages(false) {
+}
+
+Editor::VoiceActingManagerSettings::~VoiceActingManagerSettings() = default;
+
+// TODO do I need this?
+//Editor::VoiceActingManagerSettings::VoiceActingManagerSettings(const VoiceActingManagerSettings& settings)
+//	: _abbrevCampaign(settings._abbrevCampaign, MAX_ABBREV_LENGTH),
+//	_abbrevCommandBriefing(settings._abbrevCommandBriefing, MAX_ABBREV_LENGTH),
+//	_abbrevDebriefing(settings._abbrevDebriefing, MAX_ABBREV_LENGTH),
+//	_abbrevMessage(settings._abbrevMessage, MAX_ABBREV_LENGTH),
+//	_abbrevMission(settings._abbrevMission, MAX_ABBREV_LENGTH),
+//	_replaceFilenames(settings._replaceFilenames),
+//	_scriptEntryFormat(settings._scriptEntryFormat, MAX_SCRIPT_FORMAT_LENGTH),
+//	_exportSelection(settings._exportSelection),
+//	_groupMessages(settings._groupMessages) {
+//}
+
+Editor::VoiceActingManagerSettings& Editor::VoiceActingManagerSettings::operator=(const VoiceActingManagerSettings& settings) {
+	if (&settings == this) {
+		return *this;
+	}
+	_abbrevCampaign = settings._abbrevCampaign;
+	_abbrevCampaign.resize(MAX_ABBREV_LENGTH);
+	_abbrevCommandBriefing = settings._abbrevCommandBriefing;
+	_abbrevCommandBriefing.resize(MAX_ABBREV_LENGTH);
+	_abbrevDebriefing = settings._abbrevDebriefing;
+	_abbrevDebriefing.resize(MAX_ABBREV_LENGTH);
+	_abbrevMessage = settings._abbrevMessage, MAX_ABBREV_LENGTH;
+	_abbrevMessage.resize(MAX_ABBREV_LENGTH);
+	_abbrevMission = settings._abbrevMission;
+	_abbrevMission.resize(MAX_ABBREV_LENGTH);
+	_extensionIndex = settings._extensionIndex;
+	_replaceFilenames = settings._replaceFilenames;
+	_useSenderInFilename = settings._useSenderInFilename;
+	_scriptEntryFormat = settings._scriptEntryFormat;
+	_scriptEntryFormat.resize(MAX_SCRIPT_FORMAT_LENGTH);
+	_exportSelection = settings._exportSelection;
+	_groupMessages = settings._groupMessages;
+	return *this;
+}
+
 int Editor::reference_handler(const char* name, int type, int obj) {
 
 	char msg[2048], text[128], type_name[128];

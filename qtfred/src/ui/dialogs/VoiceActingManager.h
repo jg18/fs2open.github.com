@@ -7,6 +7,7 @@
 namespace fso {
 namespace fred {
 namespace dialogs {
+class VoiceActingManagerModel;
 
 namespace Ui {
 class VoiceActingManager;
@@ -22,8 +23,10 @@ public:
 	~VoiceActingManager() override;
 
 private:
+	void updateUI();
+
     std::unique_ptr<Ui::VoiceActingManager> ui;
-	//std::unique_ptr<VoiceActingManagerModel> _model;
+	std::unique_ptr<VoiceActingManagerModel> _model;
 	EditorViewport* _viewport;	
 };
 

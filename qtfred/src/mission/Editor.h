@@ -74,6 +74,35 @@ class Editor: public QObject {
 	///! Non-copyable.
 	const Editor& operator=(const Editor&) = delete;
 
+	struct VoiceActingManagerSettings {
+		enum class ExportOption{
+			Everything,
+			CmdBriefings,
+			Briefings,
+			Debriefings,
+			Messages
+		};
+		static const int MAX_ABBREV_LENGTH = NAME_LENGTH - 1;
+		static const int MAX_SCRIPT_FORMAT_LENGTH = NOTES_LENGTH - 1;
+		SCP_string _abbrevBriefing;
+		SCP_string _abbrevCampaign;
+		SCP_string _abbrevCommandBriefing;
+		SCP_string _abbrevDebriefing;
+		SCP_string _abbrevMessage;
+		SCP_string _abbrevMission;
+		int _extensionIndex;
+		bool _replaceFilenames;
+		bool _useSenderInFilename;
+		SCP_string _scriptEntryFormat;
+		ExportOption _exportSelection;
+		bool _groupMessages;
+
+		VoiceActingManagerSettings();
+		~VoiceActingManagerSettings();
+		VoiceActingManagerSettings(const VoiceActingManagerSettings& settings) = delete;
+		VoiceActingManagerSettings& operator=(const VoiceActingManagerSettings& settings);
+		//bool operator==(const VoiceActingManagerSettings& settings) const;
+	};
  public slots:
 	/*! Update the game but doesn't render anything. */
 	void update();
@@ -174,6 +203,9 @@ class Editor: public QObject {
 	void exportShieldSysData(std::vector<int>& teams, std::vector<int>& types) const;
 	void importShieldSysData(const std::vector<int>& teams, const std::vector<int>& types);
 	void normalizeShieldSysData();
+
+	void exportVoiceActingManagerSettings(VoiceActingManagerSettings& settings) const { settings = _vaMgrSettings; }
+	void importVoiceActingManagerSettings(const VoiceActingManagerSettings& settings) { _vaMgrSettings = settings; }
  private:
 	void clearMission();
 
@@ -190,6 +222,8 @@ class Editor: public QObject {
 
 	std::vector<int> Shield_sys_teams;
 	std::vector<int> Shield_sys_types;
+
+	VoiceActingManagerSettings _vaMgrSettings;
 
 	int delete_flag;
 
