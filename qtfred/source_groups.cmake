@@ -126,6 +126,7 @@ add_file_folder("UI"
 	ui/AboutDialog.ui
 	ui/BackgroundEditor.ui
 	ui/BriefingEditorDialog.ui
+	ui/CampaignEditor.ui
 	ui/CustomWingNamesDialog.ui
     ui/EventEditorDialog.ui
 	ui/FictionViewerDialog.ui
@@ -134,7 +135,9 @@ add_file_folder("UI"
 	ui/MissionGoalsDialog.ui
 	ui/MissionSpecDialog.ui
 	ui/ObjectOrientationDialog.ui
+	ui/ReinforcementsEditorDialog.ui
 	ui/SelectionDialog.ui
+	ui/SetGlobalShipFlagsDialog.ui
 	ui/ShieldSystemDialog.ui
 	ui/TeamLoadoutDialog.ui
 	ui/VoiceActingManager.ui
