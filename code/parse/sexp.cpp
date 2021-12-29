@@ -11385,6 +11385,7 @@ void sexp_hud_set_message(int n)
 			message = Messages[i].message;
 
 			sexp_replace_variable_names_with_values(message);
+			sexp_container_replace_refs_with_values(message);
 
 			HudGauge* cg = hud_get_gauge(gaugename);
 			if (cg) {
@@ -16756,6 +16757,7 @@ void sexp_set_death_message(int n)
 	lcl_replace_stuff(Player->death_message);
 
 	sexp_replace_variable_names_with_values(Player->death_message);
+	sexp_container_replace_refs_with_values(Player->death_message);
 }
 
 int sexp_key_pressed(int node)
@@ -21725,8 +21727,9 @@ void sexp_debug(int node)
 		}
 	}
 
-	// replace variables if necessary
+	// replace variables and container references if necessary
 	sexp_replace_variable_names_with_values(warning_message);
+	sexp_container_replace_refs_with_values(warning_message);
 
 	//send the message
 	#ifndef NDEBUG
