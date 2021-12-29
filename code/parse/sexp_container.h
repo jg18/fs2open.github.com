@@ -177,3 +177,6 @@ const char *sexp_container_CTEXT(int node);
 
 // persistence
 bool sexp_container_has_persistent_non_eternal_containers();
+
+// evaluate container status SEXP
+int sexp_container_eval_status_sexp(int op_num, int node);
