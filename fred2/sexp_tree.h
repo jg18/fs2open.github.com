@@ -152,6 +152,7 @@ public:
 	void replace_operator(const char *op);
 	void replace_data(const char *data, int type);
 	void replace_variable_data(int var_idx, int type);
+	void replace_container_name(const sexp_container &container);
 	void replace_container_data(const sexp_container &container,
 		int type,
 		bool test_child_nodes,
@@ -203,6 +204,7 @@ public:
 	bool rename_container_nodes(const SCP_string &old_name, const SCP_string &new_name);
 	bool is_matching_container_node(int node, const SCP_string &container_name) const;
 	bool is_container_argument(int node) const;
+	static bool is_container_opf_type(int op_type);
 
 	// Goober5000
 	int find_argument_number(int parent_node, int child_node) const;
@@ -214,8 +216,7 @@ public:
 	int get_data_image(int node);
 
 
-	// FIXME TODO: look for a better approach than adding this parameter
-	sexp_list_item *get_listing_opf(int opf, int parent_node, int arg_index, bool modfier = false);
+	sexp_list_item *get_listing_opf(int opf, int parent_node, int arg_index);
 	sexp_list_item *get_listing_opf_null();
 	sexp_list_item *get_listing_opf_bool(int parent_node = -1);
 	sexp_list_item *get_listing_opf_positive();
@@ -302,9 +303,9 @@ public:
 	sexp_list_item *get_listing_opf_language();
 	sexp_list_item* get_listing_opf_functional_when_eval_type();
 	sexp_list_item *get_listing_opf_sexp_containers(ContainerType con_type);
-	sexp_list_item *modifier_get_listing_opf(int parent_node, int arg_index, int type = OPF_NULL);
-	sexp_list_item *get_listing_opf_list_modifiers(bool use_modifier_type);
-	sexp_list_item *get_listing_opf_map_keys(int parent_node, bool use_modifier_type);
+	sexp_list_item *modifier_get_listing_opf(int parent_node, int arg_index);
+	sexp_list_item *get_listing_opf_list_modifiers() const;
+	sexp_list_item *get_listing_opf_map_keys(int parent_node) const;
 
 	int m_mode;
 	int item_index;
