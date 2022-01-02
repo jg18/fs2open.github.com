@@ -807,7 +807,7 @@ void sexp_tree::right_clicked(int mode)
 								if (Sexp_variables[idx].type & SEXP_VARIABLE_SET) {
 									// skip block variables
 									if (Sexp_variables[idx].type & SEXP_VARIABLE_BLOCK) {
-										continue; 
+										continue;
 									}
 
 									UINT flags = MF_STRING | MF_GRAYED;
@@ -849,23 +849,44 @@ void sexp_tree::right_clicked(int mode)
 									replace_variable_menu->AppendMenu(flags, (ID_VARIABLE_MENU + idx), buf);
 								}
 							}
-						}
 
-						// Replace Container Name submenu
-						if (is_container_opf_type(op_type)) {
-							int container_name_index = 0;
-							for (const auto &container : get_all_sexp_containers()) {
-								UINT flags = MF_STRING;
+							// Replace Container Name submenu
+							if (is_container_opf_type(op_type)) {
+								int container_name_index = 0;
+								for (const auto &container : get_all_sexp_containers()) {
+									UINT flags = MF_STRING | MF_GRAYED;
 
-								if ((op_type == OPF_LIST_CONTAINER_NAME) && !container.is_list()) {
-									flags |= MF_GRAYED;
-								} else if ((op_type == OPF_MAP_CONTAINER_NAME) && !container.is_map()) {
-									flags |= MF_GRAYED;
+									if ((op_type == OPF_LIST_CONTAINER_NAME) && container.is_list()) {
+										flags &= ~MF_GRAYED;
+									} else if ((op_type == OPF_MAP_CONTAINER_NAME) && container.is_map()) {
+										flags &= ~MF_GRAYED;
+									}
+
+									replace_container_name_menu->AppendMenu(flags,
+										(ID_CONTAINER_NAME_MENU + container_name_index++),
+										container.container_name.c_str());
 								}
+							}
 
-								replace_container_name_menu->AppendMenu(flags,
-									(ID_CONTAINER_NAME_MENU + container_name_index++),
-									container.container_name.c_str());
+							// Replace Container Data submenu
+							// disallowed on variable-type SEXP args, to prevent FSO/FRED crashes
+							if (op_type != OPF_VARIABLE_NAME) {
+								int container_data_index = 0;
+								for (const auto &container : get_all_sexp_containers()) {
+									UINT flags = MF_STRING | MF_GRAYED;
+
+									if ((type & SEXPT_STRING) && any(container.type & ContainerType::STRING_DATA)) {
+										flags &= ~MF_GRAYED;
+									}
+
+									if ((type & SEXPT_NUMBER) && any(container.type & ContainerType::NUMBER_DATA)) {
+										flags &= ~MF_GRAYED;
+									}
+
+									replace_container_data_menu->AppendMenu(flags,
+										(ID_CONTAINER_DATA_MENU + container_data_index++),
+										container.container_name.c_str());
+								}
 							}
 						}
 					//}
@@ -876,28 +897,6 @@ void sexp_tree::right_clicked(int mode)
 			if (sexp_variable_count() == 0) {
 				menu.EnableMenuItem(ID_SEXP_TREE_MODIFY_VARIABLE, MF_GRAYED);
 			}
-		}
-
-		// populate "Replace Container Data" submenu
-		int container_data_index = 0;
-		for (const auto &container : get_all_sexp_containers()) {
-			UINT flags = MF_STRING | MF_GRAYED;
-
-			if (type & SEXPT_STRING) {
-				if (any(container.type & ContainerType::STRING_DATA)) {
-					flags &= ~MF_GRAYED;
-				}
-			}
-
-			if (type & SEXPT_NUMBER) {
-				if (any(container.type & ContainerType::NUMBER_DATA)) {
-					flags &= ~MF_GRAYED;
-				}
-			}
-
-			replace_container_data_menu->AppendMenu(flags,
-				(ID_CONTAINER_DATA_MENU + container_data_index++),
-				container.container_name.c_str());
 		}
 
 		// add all the submenu items first
@@ -1077,38 +1076,54 @@ void sexp_tree::right_clicked(int mode)
 
 		// container multidimensionality
 		if (tree_nodes[item_index].type & SEXPT_CONTAINER_DATA) {
-			add_type = OPR_STRING;
+			// using local var for add count to avoid breaking implicit assumptions about Add_count
+			const int modifier_node = tree_nodes[item_index].child;
+			Assert(modifier_node != -1);
+			const int modifier_add_count = count_args(modifier_node);
 
-			// the next thing we want to add could literally be any legal key for any map or the legal entries for a list container
-			// so give the FREDder a hand and offer the list modifiers, but only the FREDder can know if they're relevant
-			list = get_listing_opf(OPF_LIST_MODIFIER, item_index, Add_count);
-			Assert(list);
+			const auto *p_container = get_sexp_container(tree_nodes[item_index].text);
+			Assert(p_container);
 
-			if (list) {
-				sexp_list_item *ptr = nullptr;
+			if (modifier_add_count == 1 && p_container->is_list() &&
+				list_modifier::get_modifier(tree_nodes[modifier_node].text) == ListModifier::AT_INDEX) {
+				// only valid value is a list index
+				add_type = OPR_NUMBER;
+				menu.EnableMenuItem(ID_ADD_NUMBER, MF_ENABLED);
+			} else {
+				// container multidimensionality
+				add_type = OPR_STRING;
 
-				int data_idx = 0;
-				ptr = list;
-				while (ptr) {
-					if (ptr->op >= 0) {
-						// enable operators with correct return type
-						menu.EnableMenuItem(Operators[ptr->op].value, MF_ENABLED);
-					} else {
-						// add data
-						if ((data_idx + 3) % 30) {
-							add_data_menu->AppendMenu(MF_STRING | MF_ENABLED, ID_ADD_MENU + data_idx, ptr->text.c_str());
+				// the next thing we want to add could literally be any legal key for any map or the legal entries for a list container
+				// so give the FREDder a hand and offer the list modifiers, but only the FREDder can know if they're relevant
+				list = get_listing_opf(OPF_LIST_MODIFIER, item_index, Add_count);
+				Assert(list);
+
+				if (list) {
+					sexp_list_item *ptr = nullptr;
+
+					int data_idx = 0;
+					ptr = list;
+					while (ptr) {
+						if (ptr->op >= 0) {
+							// enable operators with correct return type
+							menu.EnableMenuItem(Operators[ptr->op].value, MF_ENABLED);
 						} else {
-							add_data_menu->AppendMenu(MF_MENUBARBREAK | MF_STRING | MF_ENABLED, ID_ADD_MENU + data_idx, ptr->text.c_str());
+							// add data
+							if ((data_idx + 3) % 30) {
+								add_data_menu->AppendMenu(MF_STRING | MF_ENABLED, ID_ADD_MENU + data_idx, ptr->text.c_str());
+							} else {
+								add_data_menu->AppendMenu(MF_MENUBARBREAK | MF_STRING | MF_ENABLED, ID_ADD_MENU + data_idx, ptr->text.c_str());
+							}
 						}
+
+						data_idx++;
+						ptr = ptr->next;
 					}
-
-					data_idx++;
-					ptr = ptr->next;
 				}
-			}
 
-			menu.EnableMenuItem(ID_ADD_NUMBER, MF_ENABLED);
-			menu.EnableMenuItem(ID_ADD_STRING, MF_ENABLED);
+				menu.EnableMenuItem(ID_ADD_NUMBER, MF_ENABLED);
+				menu.EnableMenuItem(ID_ADD_STRING, MF_ENABLED);
+			}
 		} else if (tree_nodes[item_index].flags & OPERAND)	{
 			add_type = OPR_STRING;
 			int child = tree_nodes[item_index].child;
@@ -1249,7 +1264,17 @@ void sexp_tree::right_clicked(int mode)
 
 			// Container modifiers use their own list of possible arguments
 			if (tree_nodes[item_index].type & SEXPT_MODIFIER) {
-				list = modifier_get_listing_opf(parent, Replace_count);
+				const auto *p_container = get_sexp_container(tree_nodes[parent].text);
+				Assert(p_container != nullptr);
+				const int first_modifier = tree_nodes[parent].child;
+				if (Replace_count == 1 && p_container->is_list() &&
+					list_modifier::get_modifier(tree_nodes[first_modifier].text) == ListModifier::AT_INDEX) {
+					// only valid value is a list index (number)
+					list = nullptr;
+					replace_type = OPR_NUMBER;
+				} else {
+					list = modifier_get_listing_opf(parent, Replace_count);
+				}
 			} else {
 				list = get_listing_opf(type, parent, Replace_count);
 			}
@@ -1350,18 +1375,18 @@ void sexp_tree::right_clicked(int mode)
 
 			if (tree_nodes[item_index].type & SEXPT_MODIFIER) {
 				Assert(tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+				const int first_modifier_node = tree_nodes[parent].child;
+				Assert(first_modifier_node != -1);
+				const auto *p_container = get_sexp_container(tree_nodes[parent].text);
+				Assert(p_container);
+				const auto &container = *p_container;
 
 				if (Replace_count == 0) {
-					const auto *p_container = get_sexp_container(tree_nodes[parent].text);
-					Assert(p_container);
-					const auto &container = *p_container;
-
 					if (container.is_list()) {
 						// the only valid values are either the list modifiers or Replace Variable/Cotnainer Data with string data
 						menu.EnableMenuItem(ID_REPLACE_NUMBER, MF_GRAYED);
 						menu.EnableMenuItem(ID_REPLACE_STRING, MF_GRAYED);
 						menu.EnableMenuItem(ID_EDIT_TEXT, MF_GRAYED);
-						// FIXME TODO: ensure list_modifiers are present in Replace Data submenu
 					} else if (container.is_map()) {
 						if (any(container.type & ContainerType::STRING_KEYS)) {
 							menu.EnableMenuItem(ID_REPLACE_NUMBER, MF_GRAYED);
@@ -1375,6 +1400,11 @@ void sexp_tree::right_clicked(int mode)
 					} else {
 						UNREACHABLE("Unknown container type %d", (int)container.type);
 					}
+				} else if (Replace_count == 1 && container.is_list() &&
+						   list_modifier::get_modifier(tree_nodes[first_modifier_node].text) ==
+							   ListModifier::AT_INDEX) {
+					// only valid value is a list index
+					menu.EnableMenuItem(ID_REPLACE_NUMBER, MF_ENABLED);
 				} else {
 					// multidimensional modifiers can be anything, including possibly a list modifier
 					// the value can be validated only at runtime (i.e., in-mission)
@@ -1540,15 +1570,14 @@ void sexp_tree::right_clicked(int mode)
 		if (!(menu.GetMenuState(ID_DELETE, MF_BYCOMMAND) & MF_GRAYED))
 			menu.EnableMenuItem(ID_EDIT_CUT, MF_ENABLED);
 
-		if (tree_nodes[item_index].type & SEXPT_MODIFIER) {
-			// for now, modifiers don't support cut/copy/paste
-			// these restrictions may be revisited in the future
+		// all of the following restrictions may be revisited in the future
+		if (tree_nodes[item_index].type & (SEXPT_MODIFIER | SEXPT_CONTAINER_NAME)) {
+			// modifiers and container names don't support cut/copy/paste
 			menu.EnableMenuItem(ID_EDIT_CUT, MF_GRAYED);
 			menu.EnableMenuItem(ID_EDIT_COPY, MF_GRAYED);
 			menu.EnableMenuItem(ID_EDIT_PASTE, MF_GRAYED);
 		} else if (tree_nodes[item_index].type & SEXPT_CONTAINER_DATA) {
-			// for now, container data doesn't support add-paste
-			// this restricted may be revisited in the future
+			// container data nodes don't support add-pasting modifiers
 			menu.EnableMenuItem(ID_EDIT_PASTE_SPECIAL, MF_GRAYED);
 		}
 
@@ -1969,7 +1998,7 @@ BOOL sexp_tree::OnCommand(WPARAM wParam, LPARAM lParam)
 
 	// Add/Modify Container
 	if (id == ID_EDIT_SEXP_TREE_EDIT_CONTAINERS) {
-		CAddModifyContainerDlg dlg(this);
+		CAddModifyContainerDlg dlg(*this);
 
 		dlg.DoModal();
 
