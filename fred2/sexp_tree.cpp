@@ -837,6 +837,10 @@ void sexp_tree::right_clicked(int mode)
 									if (op_type == OPF_NAV_POINT)
 										flags &= ~MF_GRAYED;
 
+									// enable all for container multidimensionality
+									if ((type & SEXPT_MODIFIER) && Replace_count > 0)
+										flags &= ~MF_GRAYED;
+
 									if (!( (idx + 3) % 30)) {
 										flags |= MF_MENUBARBREAK;
 									}
@@ -882,6 +886,10 @@ void sexp_tree::right_clicked(int mode)
 									if ((type & SEXPT_NUMBER) && any(container.type & ContainerType::NUMBER_DATA)) {
 										flags &= ~MF_GRAYED;
 									}
+
+									// enable all for container multidimensionality
+									if ((tree_nodes[item_index].type & SEXPT_MODIFIER) && Replace_count > 0)
+										flags &= ~MF_GRAYED;
 
 									replace_container_data_menu->AppendMenu(flags,
 										(ID_CONTAINER_DATA_MENU + container_data_index++),
@@ -1223,7 +1231,9 @@ void sexp_tree::right_clicked(int mode)
 				if (count <= Operators[op].min) {
 					menu.EnableMenuItem(ID_DELETE, MF_GRAYED);
 				}
-			} else if ((tree_nodes[parent].type & SEXPT_CONTAINER_DATA) && (count == 1)) {
+			} else if ((tree_nodes[parent].type & SEXPT_CONTAINER_DATA) && (item_index == first_arg)) {
+				// a container data node's initial modifier can't be deleted
+				Assert(tree_nodes[item_index].type & SEXPT_MODIFIER);
 				menu.EnableMenuItem(ID_DELETE, MF_GRAYED);
 			}
 
@@ -1538,22 +1548,24 @@ void sexp_tree::right_clicked(int mode)
 			} else if (Sexp_nodes[Sexp_clipboard].subtype == SEXP_ATOM_CONTAINER) {
 				// TODO: check for strictly typed container keys/data
 				const auto *p_container = get_sexp_container(Sexp_nodes[Sexp_clipboard].text);
-				Assert(p_container != nullptr);
-				const auto &container = *p_container;
-				if (any(container.type & ContainerType::NUMBER_DATA)) {
-					// there's no way to check for OPR_POSITIVE, since the value
-					// is known only in-mission, so we'll handle OPR_NUMBER only
-					if (replace_type == OPR_NUMBER)
-						menu.EnableMenuItem(ID_EDIT_PASTE, MF_ENABLED);
-					if (add_type == OPR_NUMBER)
-						menu.EnableMenuItem(ID_EDIT_PASTE_SPECIAL, MF_ENABLED);
-				} else if (any(container.type & ContainerType::STRING_DATA)) {
-					if (replace_type == OPR_STRING)
-						menu.EnableMenuItem(ID_EDIT_PASTE, MF_ENABLED);
-					if (add_type == OPR_STRING)
-						menu.EnableMenuItem(ID_EDIT_PASTE_SPECIAL, MF_ENABLED);
-				} else {
-					UNREACHABLE("Unknown container data type %d", (int)container.type);
+				// if-check in case the container was renamed/deleted after the container data was cut/copied
+				if (p_container != nullptr) {
+					const auto &container = *p_container;
+					if (any(container.type & ContainerType::NUMBER_DATA)) {
+						// there's no way to check for OPR_POSITIVE, since the value
+						// is known only in-mission, so we'll handle OPR_NUMBER only
+						if (replace_type == OPR_NUMBER)
+							menu.EnableMenuItem(ID_EDIT_PASTE, MF_ENABLED);
+						if (add_type == OPR_NUMBER)
+							menu.EnableMenuItem(ID_EDIT_PASTE_SPECIAL, MF_ENABLED);
+					} else if (any(container.type & ContainerType::STRING_DATA)) {
+						if (replace_type == OPR_STRING)
+							menu.EnableMenuItem(ID_EDIT_PASTE, MF_ENABLED);
+						if (add_type == OPR_STRING)
+							menu.EnableMenuItem(ID_EDIT_PASTE_SPECIAL, MF_ENABLED);
+					} else {
+						UNREACHABLE("Unknown container data type %d", (int)container.type);
+					}
 				}
 
 			} else if (Sexp_nodes[Sexp_clipboard].subtype == SEXP_ATOM_NUMBER) {
@@ -2156,9 +2168,10 @@ BOOL sexp_tree::OnCommand(WPARAM wParam, LPARAM lParam)
 
 	if ((id >= ID_CONTAINER_NAME_MENU) && (id < ID_CONTAINER_NAME_MENU + 511)) {
 		Assert(item_index >= 0);
+		Assert(is_container_argument(item_index));
 
 		const auto &containers = get_all_sexp_containers();
-		const int container_index = id - ID_CONTAINER_DATA_MENU;
+		const int container_index = id - ID_CONTAINER_NAME_MENU;
 		Assertion((container_index >= 0) && (container_index < (int)containers.size()),
 			"Unknown Container");
 
@@ -4137,15 +4150,29 @@ void sexp_tree::add_default_modifier(const sexp_container &container)
 {
 	sexp_list_item item;
 
+	int type_to_use = (SEXPT_VALID | SEXPT_MODIFIER);
+
 	if (container.is_map()) {
-		item.set_data("<any data>");
+		if (any(container.type & ContainerType::STRING_KEYS)) {
+			item.set_data("<any data>");
+			type_to_use |= SEXPT_STRING;
+		} else if (any(container.type & ContainerType::NUMBER_KEYS)) {
+			item.set_data("0");
+			type_to_use |= SEXPT_NUMBER;
+		} else {
+			UNREACHABLE("Unknown map container key type %d", (int)container.type);
+		}
 	} else if (container.is_list()) {
 		item.set_data(get_all_list_modifiers()[0].name);
+		type_to_use |= SEXPT_STRING;
 	} else {
 		UNREACHABLE("Unknown container type %d", (int)container.type);
 	}
 
-	item.type = (SEXPT_VALID | SEXPT_STRING | SEXPT_MODIFIER);
+	// type should include exactly one
+	Assert((type_to_use & SEXPT_STRING) ^ (type_to_use & SEXPT_NUMBER));
+
+	item.type = type_to_use;
 	add_data(item.text.c_str(), item.type);
 }
 
