@@ -1093,7 +1093,7 @@ void sexp_tree::right_clicked(int mode)
 			Assert(p_container);
 
 			if (modifier_add_count == 1 && p_container->is_list() &&
-				list_modifier::get_modifier(tree_nodes[modifier_node].text) == ListModifier::AT_INDEX) {
+				get_list_modifier(tree_nodes[modifier_node].text) == ListModifier::AT_INDEX) {
 				// only valid value is a list index
 				add_type = OPR_NUMBER;
 				menu.EnableMenuItem(ID_ADD_NUMBER, MF_ENABLED);
@@ -1278,7 +1278,7 @@ void sexp_tree::right_clicked(int mode)
 				Assert(p_container != nullptr);
 				const int first_modifier = tree_nodes[parent].child;
 				if (Replace_count == 1 && p_container->is_list() &&
-					list_modifier::get_modifier(tree_nodes[first_modifier].text) == ListModifier::AT_INDEX) {
+					get_list_modifier(tree_nodes[first_modifier].text) == ListModifier::AT_INDEX) {
 					// only valid value is a list index (number)
 					list = nullptr;
 					replace_type = OPR_NUMBER;
@@ -1411,7 +1411,7 @@ void sexp_tree::right_clicked(int mode)
 						UNREACHABLE("Unknown container type %d", (int)container.type);
 					}
 				} else if (Replace_count == 1 && container.is_list() &&
-						   list_modifier::get_modifier(tree_nodes[first_modifier_node].text) ==
+						   get_list_modifier(tree_nodes[first_modifier_node].text) ==
 							   ListModifier::AT_INDEX) {
 					// only valid value is a list index
 					menu.EnableMenuItem(ID_REPLACE_NUMBER, MF_ENABLED);
