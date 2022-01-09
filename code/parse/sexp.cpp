@@ -1806,6 +1806,7 @@ bool check_data_type(int type, bool is_string, bool is_number)
 		case OPF_GAME_SND:
 		case OPF_FIREBALL:
 		case OPF_WEAPON_BANK_NUMBER:
+		case OPF_ANYTHING:
 			// either type is ok
 			return true;
 
@@ -1945,6 +1946,8 @@ int check_sexp_syntax(int node, int return_type, int recursive, int *bad_node, i
 					case OPF_GAME_SND:
 					case OPF_FIREBALL:
 					case OPF_WEAPON_BANK_NUMBER:
+					// OPF_ANYTHING can be anything
+					case OPF_ANYTHING:
 						t = OPR_POSITIVE;
 						break;
 
@@ -2713,6 +2716,7 @@ int check_sexp_syntax(int node, int return_type, int recursive, int *bad_node, i
 						// no check needed
 						break;
 				}
+				break;
 
 			case OPF_AI_GOAL:
 			{
@@ -3516,7 +3520,7 @@ int check_sexp_syntax(int node, int return_type, int recursive, int *bad_node, i
 				if (type2 != SEXP_ATOM_STRING) {
 					return SEXP_CHECK_TYPE_MISMATCH;
 				}
-				const auto *p_container = get_sexp_container(Sexp_nodes[node].text);
+				p_container = get_sexp_container(Sexp_nodes[node].text);
 				if (!p_container) {
 					return SEXP_CHECK_TYPE_MISMATCH;
 				} else if ((type == OPF_LIST_CONTAINER_NAME && !p_container->is_list()) ||
