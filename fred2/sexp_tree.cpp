@@ -796,12 +796,6 @@ void sexp_tree::right_clicked(int mode)
 						{
 							type = SEXPT_NUMBER | SEXPT_STRING;
 						}
-
-						// OPF_ANYTHING can be anything
-						if (op_type == OPF_ANYTHING)
-						{
-							type = SEXPT_NUMBER | SEXPT_STRING;
-						}
 						
 						if ( (type & SEXPT_STRING) || (type & SEXPT_NUMBER) ) {
 
@@ -1204,9 +1198,6 @@ void sexp_tree::right_clicked(int mode)
 
 			} else if (type == OPF_AI_GOAL) {
 				add_type = OPR_AI_GOAL;
-			} else if (type == OPF_ANYTHING) {
-				// still default to string but allow numbers
-				menu.EnableMenuItem(ID_ADD_NUMBER, MF_ENABLED);
 			}
 
 			// add_type unchanged from above
@@ -1354,9 +1345,6 @@ void sexp_tree::right_clicked(int mode)
 				// avoid the default OPR_STRING
 				// that way, Replace Data with String won't be enabled
 				replace_type = type;
-			} else if (type == OPF_ANYTHING) {
-				// still default to string but allow numbers
-				menu.EnableMenuItem(ID_REPLACE_NUMBER, MF_ENABLED);
 			}
 
 			// default to string
@@ -5432,7 +5420,18 @@ sexp_list_item *sexp_tree::modifier_get_listing_opf(int parent_node, int arg_ind
 		UNREACHABLE("Unknown container type %d", (int)p_container->type);
 	}
 
-	return get_listing_opf(type, parent_node, arg_index);
+	auto *list = get_listing_opf(type, parent_node, arg_index);
+	Assert(list);
+
+	// in case get_listing_opf() added options like "<argument>"
+	// prevents assertion failures later
+	auto *p_item = list;
+	while (p_item) {
+		p_item->type |= SEXPT_MODIFIER;
+		p_item = p_item->next;
+	}
+
+	return list;
 }
 
 int sexp_tree::get_sibling_place(int node)
@@ -7008,12 +7007,22 @@ sexp_list_item *sexp_tree::get_listing_opf_map_keys(int parent_node) const
 	Assert(tree_nodes[parent_node].type & SEXPT_CONTAINER_DATA);
 
 	const auto *p_container = get_sexp_container(tree_nodes[parent_node].text);
-
 	Assert(p_container != nullptr);
-	Assert(p_container->is_map());
 
-	for (const auto &kv_pair : p_container->map_data) {
-		head.add_data(kv_pair.first.c_str(), SEXPT_VALID | SEXPT_MODIFIER | SEXPT_STRING);
+	const auto &container = *p_container;
+	Assert(container.is_map());
+
+	int type = SEXPT_VALID | SEXPT_MODIFIER;
+	if (any(container.type & ContainerType::STRING_KEYS)) {
+		type |= SEXPT_STRING;
+	} else if (any(container.type & ContainerType::NUMBER_KEYS)) {
+		type |= SEXPT_NUMBER;
+	} else {
+		UNREACHABLE("Unknown map container key type %d", (int)container.type);
+	}
+
+	for (const auto &kv_pair : container.map_data) {
+		head.add_data(kv_pair.first.c_str(), type);
 	}
 
 	return head.next;
