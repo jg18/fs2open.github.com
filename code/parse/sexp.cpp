@@ -2092,7 +2092,11 @@ int check_sexp_syntax(int node, int return_type, int recursive, int *bad_node, i
 			Assert(p_data_container); // name was already checked in get_sexp()
 			const auto &data_container = *p_data_container;
 
-			if (!check_container_data_type(type, data_container.type, op, argnum, p_container)) {
+			if (!check_container_data_type(type,
+					data_container.type,
+					get_operator_const(op_node),
+					argnum,
+					p_container)) {
 				return SEXP_CHECK_WRONG_CONTAINER_DATA_TYPE;
 			}
 
@@ -2152,7 +2156,11 @@ int check_sexp_syntax(int node, int return_type, int recursive, int *bad_node, i
 			var_index = sexp_get_variable_index(node);
 			Assert(var_index != -1);
 	
-			if (!check_variable_data_type(type, Sexp_variables[var_index].type, op, argnum, p_container)) {
+			if (!check_variable_data_type(type,
+					Sexp_variables[var_index].type,
+					get_operator_const(op_node),
+					argnum,
+					p_container)) {
 				return SEXP_CHECK_INVALID_VARIABLE_TYPE;
 			}
 			node = Sexp_nodes[node].rest;
@@ -3562,7 +3570,7 @@ int check_sexp_syntax(int node, int return_type, int recursive, int *bad_node, i
 
 			case OPF_CONTAINER_VALUE:
 				Assert(p_container);
-				z = check_container_value_data_type(op,
+				z = check_container_value_data_type(get_operator_const(op_node),
 					argnum,
 					p_container->type,
 					(type2 == SEXP_ATOM_STRING),
