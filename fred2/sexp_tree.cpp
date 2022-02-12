@@ -544,10 +544,7 @@ void sexp_tree::add_sub_tree(int node, HTREEITEM root)
 	while (node != -1) {
 		Assert(node >= 0 && node < (int)tree_nodes.size());
 		Assert(tree_nodes[node].type & SEXPT_VALID);
-		if (tree_nodes[node].type & SEXPT_OPERATOR)	{
-			add_sub_tree(node, root);
-
-		} else if (tree_nodes[node].type & SEXPT_CONTAINER_DATA) {
+		if (tree_nodes[node].type & (SEXPT_OPERATOR | SEXPT_CONTAINER_DATA)) {
 			add_sub_tree(node, root);
 
 		} else {
@@ -1435,6 +1432,7 @@ void sexp_tree::right_clicked(int mode)
 							   ListModifier::AT_INDEX) {
 					// only valid value is a list index
 					menu.EnableMenuItem(ID_REPLACE_NUMBER, MF_ENABLED);
+					menu.EnableMenuItem(ID_REPLACE_STRING, MF_GRAYED);
 				} else {
 					// multidimensional modifiers can be anything, including possibly a list modifier
 					// the value can be validated only at runtime (i.e., in-mission)

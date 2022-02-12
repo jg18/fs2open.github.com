@@ -645,19 +645,15 @@ void sexp_tree::add_sub_tree(int node, QTreeWidgetItem* root) {
 		bitmap = NodeImage::OPERATOR;
 	} else {
 		if (tree_nodes[node].type & SEXPT_VARIABLE) {
-			tree_nodes[node].handle->setFlags(tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, false));
 			tree_nodes[node].flags = NOT_EDITABLE;
 			bitmap = NodeImage::VARIABLE;
 		} else if (tree_nodes[node].type & SEXPT_CONTAINER_NAME) {
-			tree_nodes[node].handle->setFlags(tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, false));
 			tree_nodes[node].flags = NOT_EDITABLE;
 			bitmap = NodeImage::CONTAINER_NAME;
 		} else if (tree_nodes[node].type & SEXPT_CONTAINER_DATA) {
-			//tree_nodes[node].handle->setFlags(tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, false));
 			tree_nodes[node].flags = NOT_EDITABLE;
 			bitmap = NodeImage::CONTAINER_DATA;
 		} else {
-			tree_nodes[node].handle->setFlags(tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, true));
 			tree_nodes[node].flags = EDITABLE;
 			bitmap = get_data_image(node);
 		}
@@ -665,25 +661,23 @@ void sexp_tree::add_sub_tree(int node, QTreeWidgetItem* root) {
 
 	root = tree_nodes[node].handle = insert(tree_nodes[node].text, bitmap, root);
 
+	tree_nodes[node].handle->setFlags(
+		tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, (tree_nodes[node].flags & EDITABLE)));
+
 	node = node2;
 	while (node != -1) {
 		Assert(node >= 0 && node < (int) tree_nodes.size());
 		Assert(tree_nodes[node].type & SEXPT_VALID);
-		if (tree_nodes[node].type & SEXPT_OPERATOR) {
-			add_sub_tree(node, root);
-
-		} else if (tree_nodes[node].type & SEXPT_CONTAINER_DATA) {
+		if (tree_nodes[node].type & (SEXPT_OPERATOR | SEXPT_CONTAINER_DATA)) {
 			add_sub_tree(node, root);
 
 		} else {
 			Assert(tree_nodes[node].child == -1);
 			if (tree_nodes[node].type & SEXPT_VARIABLE) {
 				tree_nodes[node].handle = insert(tree_nodes[node].text, NodeImage::VARIABLE, root);
-				tree_nodes[node].handle->setFlags(tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, false));
 				tree_nodes[node].flags = NOT_EDITABLE;
 			} else if (tree_nodes[node].type & SEXPT_CONTAINER_NAME) {
 				tree_nodes[node].handle = insert(tree_nodes[node].text, NodeImage::CONTAINER_NAME, root);
-				tree_nodes[node].handle->setFlags(tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, false));
 				tree_nodes[node].flags = NOT_EDITABLE;
 			// SEXPT_MODIFIER doesn't require special treatment here
 			} else {
@@ -691,6 +685,9 @@ void sexp_tree::add_sub_tree(int node, QTreeWidgetItem* root) {
 				tree_nodes[node].handle = insert(tree_nodes[node].text, bmap, root);
 				tree_nodes[node].flags = EDITABLE;
 			}
+
+			tree_nodes[node].handle->setFlags(
+				tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, (tree_nodes[node].flags & EDITABLE)));
 		}
 
 		node = tree_nodes[node].next;
@@ -989,7 +986,8 @@ int sexp_tree::add_default_operator(int op_index, int argnum) {
 		item_index = index;
 	} else {
 		// special case for sexps that take variables
-		if (query_operator_argument_type(op_index, argnum) == OPF_VARIABLE_NAME) {
+		const int op_type = query_operator_argument_type(op_index, argnum);
+		if (op_type == OPF_VARIABLE_NAME) {
 			int sexp_var_index = get_index_sexp_variable_name(item.text);
 			Assert(sexp_var_index != -1);
 			int type = SEXPT_VALID | SEXPT_VARIABLE;
@@ -1004,6 +1002,10 @@ int sexp_tree::add_default_operator(int op_index, int argnum) {
 			char node_text[2 * TOKEN_LENGTH + 2];
 			sprintf(node_text, "%s(%s)", item.text.c_str(), Sexp_variables[sexp_var_index].text);
 			add_variable_data(node_text, type);
+		}
+		else if (item.type & SEXPT_CONTAINER_NAME) {
+			Assert(is_container_opf_type(op_type));
+			add_container_name(item.text.c_str());
 		}
 			// modify-variable data type depends on type of variable being modified
 			// (we know this block is handling the second argument since it's not OPF_VARIABLE_NAME)
@@ -1741,6 +1743,36 @@ int sexp_tree::add_variable_data(const char* new_data, int type) {
 	return node;
 }
 
+// add a container name node under operator pointed to by item_index
+int sexp_tree::add_container_name(const char* container_name)
+{
+	Assert(container_name != nullptr);
+	Assert(get_sexp_container(container_name) != nullptr);
+
+	expand_operator(item_index);
+	int node = allocate_node(item_index);
+	set_node(node, (SEXPT_VALID | SEXPT_CONTAINER_NAME | SEXPT_STRING), container_name);
+	tree_nodes[node].handle = insert(container_name, NodeImage::CONTAINER_NAME, tree_nodes[item_index].handle);
+	tree_nodes[node].handle->setFlags(tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, false));
+	tree_nodes[node].flags = NOT_EDITABLE;
+	modified();
+	return node;
+}
+
+// add a (container) data node under operator pointed to by item_index
+void sexp_tree::add_container_data(const char* container_name)
+{
+	Assert(container_name != nullptr);
+	Assert(get_sexp_container(container_name) != nullptr);
+	const int node = allocate_node(item_index);
+	set_node(node, (SEXPT_VALID | SEXPT_CONTAINER_DATA | SEXPT_STRING), container_name);
+	tree_nodes[node].handle = insert(container_name, NodeImage::CONTAINER_DATA, tree_nodes[item_index].handle);
+	tree_nodes[node].handle->setFlags(tree_nodes[node].handle->flags().setFlag(Qt::ItemIsEditable, false));
+	tree_nodes[node].flags = NOT_EDITABLE;
+	item_index = node;
+	modified();
+}
+
 // add an operator under operator pointed to by item_index.  Updates item_index to point
 // to this new operator.
 int sexp_tree::add_operator(const char* op, QTreeWidgetItem* h) {
@@ -2086,6 +2118,13 @@ void sexp_tree::verify_and_fix_arguments(int node) {
 			is_variable_arg = true;
 			type = get_modify_variable_type(node);
 		}
+		if (tree_nodes[item_index].type & SEXPT_CONTAINER_DATA) {
+			// we don't care if the data matches
+			// TODO: revisit if/when strictly typed data becomes supported
+			item_index = tree_nodes[item_index].next;
+			arg_num++;
+			continue;
+		}
 		if (query_restricted_opf_range(type)) {
 			list = get_listing_opf(type, node, arg_num);
 			if (!list && (arg_num >= Operators[op_index].min)) {
@@ -2273,6 +2312,111 @@ void sexp_tree::replace_variable_data(int var_idx, int type) {
 	update_help(currentItem());
 }
 
+void sexp_tree::replace_container_name(const sexp_container &container)
+{
+	// clean up any child nodes
+	int node = tree_nodes[item_index].child;
+	if (node != -1) {
+		free_node2(node);
+	}
+	tree_nodes[item_index].child = -1;
+	auto *h = tree_nodes[item_index].handle;
+	while (h->childCount() > 0) {
+		h->removeChild(h->child(0));
+	}
+
+	set_node(item_index, (SEXPT_VALID | SEXPT_STRING | SEXPT_CONTAINER_NAME), container.container_name.c_str());
+	h->setText(0, QString::fromStdString(container.container_name));
+	h->setIcon(0, convertNodeImageToIcon(NodeImage::CONTAINER_NAME));
+	h->setFlags(h->flags().setFlag(Qt::ItemIsEditable, false));
+	tree_nodes[item_index].flags = NOT_EDITABLE;
+
+	modified();
+	update_help(currentItem());
+}
+
+void sexp_tree::replace_container_data(const sexp_container &container,
+	int type,
+	bool test_child_nodes,
+	bool delete_child_nodes,
+	bool set_default_modifier)
+{
+	auto *h = tree_nodes[item_index].handle;
+
+	// if this is already a container of the right type, don't alter the child nodes
+	if (test_child_nodes && (tree_nodes[item_index].type & SEXPT_CONTAINER_DATA)) {
+		if (container.is_list()) {
+			const auto *p_old_container = get_sexp_container(tree_nodes[item_index].text);
+
+			Assert(p_old_container != nullptr);
+
+			if (p_old_container->is_list()) {
+				// TODO: check for strictly typed data here
+
+				if (container.opf_type == p_old_container->opf_type) {
+					delete_child_nodes = false;
+					set_default_modifier = false;
+				}
+			}
+		}
+	}
+
+	if (delete_child_nodes) {
+		int node = tree_nodes[item_index].child;
+		if (node != -1) {
+			free_node2(node);
+		}
+
+		tree_nodes[item_index].child = -1;
+		while (h->childCount() > 0) {
+			h->removeChild(h->child(0));
+		}
+	}
+
+	set_node(item_index, type, container.container_name.c_str());
+	h->setText(0, QString::fromStdString(container.container_name));
+	h->setIcon(0, convertNodeImageToIcon(NodeImage::CONTAINER_DATA));
+	h->setFlags(h->flags().setFlag(Qt::ItemIsEditable, false));
+	tree_nodes[item_index].flags = NOT_EDITABLE;
+
+	if (set_default_modifier) {
+		add_default_modifier(container);
+	}
+
+	modified();
+	update_help(currentItem());
+}
+
+
+void sexp_tree::add_default_modifier(const sexp_container &container)
+{
+	sexp_list_item item;
+
+	int type_to_use = (SEXPT_VALID | SEXPT_MODIFIER);
+
+	if (container.is_map()) {
+		if (any(container.type & ContainerType::STRING_KEYS)) {
+			item.set_data("<any string>");
+			type_to_use |= SEXPT_STRING;
+		} else if (any(container.type & ContainerType::NUMBER_KEYS)) {
+			item.set_data("0");
+			type_to_use |= SEXPT_NUMBER;
+		} else {
+			UNREACHABLE("Unknown map container key type %d", (int)container.type);
+		}
+	} else if (container.is_list()) {
+		item.set_data(get_all_list_modifiers()[0].name);
+		type_to_use |= SEXPT_STRING;
+	} else {
+		UNREACHABLE("Unknown container type %d", (int)container.type);
+	}
+
+	// type should include exactly one
+	Assert((type_to_use & SEXPT_STRING) ^ (type_to_use & SEXPT_NUMBER));
+
+	item.type = type_to_use;
+	add_data(item.text.c_str(), item.type);
+}
 
 void sexp_tree::replace_operator(const char* op) {
 	auto node = tree_nodes[item_index].child;
@@ -2719,6 +2863,7 @@ int sexp_tree::query_restricted_opf_range(int opf) {
 		// Goober5000 - these are needed too (otherwise the arguments revert to their defaults)
 	case OPF_STRING:
 	case OPF_ANYTHING:
+	case OPF_CONTAINER_VALUE: // jg18
 		return 0;
 	}
 
@@ -2737,7 +2882,6 @@ int sexp_tree::query_restricted_opf_range(int opf) {
 sexp_list_item* sexp_tree::get_listing_opf(int opf, int parent_node, int arg_index) {
 	sexp_list_item head;
 	sexp_list_item* list = NULL;
-	int w_arg, e_arg;
 
 	switch (opf) {
 	case OPF_NONE:
@@ -3131,10 +3275,8 @@ sexp_list_item* sexp_tree::get_listing_opf(int opf, int parent_node, int arg_ind
 	}
 
 	// skip the special argument if we aren't at the right spot in when-argument or
-	// every-time-argument... meaning if either w_arg or e_arg is >= 1, we can continue
-	w_arg = find_ancestral_argument_number(OP_WHEN_ARGUMENT, parent_node);
-	e_arg = find_ancestral_argument_number(OP_EVERY_TIME_ARGUMENT, parent_node);
-	if (w_arg < 1 && e_arg < 1 /* && the same for any future _ARGUMENT sexps */ ) {
+	// every-time-argument
+	if (!is_node_eligible_for_special_argument(parent_node)) {
 		return list;
 	}
 
@@ -3177,7 +3319,7 @@ int sexp_tree::find_argument_number(int parent_node, int child_node) const {
 // Goober5000
 // backtrack through parents until we find the operator matching
 // parent_op, then find the argument we went through
-int sexp_tree::find_ancestral_argument_number(int parent_op, int child_node) {
+int sexp_tree::find_ancestral_argument_number(int parent_op, int child_node) const {
 	if (child_node == -1) {
 		return -1;
 	}
@@ -4774,6 +4916,111 @@ sexp_list_item *sexp_tree::get_listing_opf_sexp_containers(ContainerType con_typ
 	return head.next;
 }
 
+sexp_list_item *sexp_tree::get_container_modifiers(int con_data_node) const
+{
+	Assert(con_data_node != -1);
+	Assert(tree_nodes[con_data_node].type & SEXPT_CONTAINER_DATA);
+
+	const auto *p_container = get_sexp_container(tree_nodes[con_data_node].text);
+	Assert(p_container);
+	const auto &container = *p_container;
+
+	sexp_list_item head;
+	sexp_list_item *list = nullptr;
+
+	if (container.is_list()) {
+		list = get_list_container_modifiers();
+	} else if (container.is_map()) {
+		// start the list with "<argument>" if relevant
+		if (is_node_eligible_for_special_argument(con_data_node) &&
+			any(container.type & ContainerType::STRING_KEYS)) {
+			head.add_data(SEXP_ARGUMENT_STRING, (SEXPT_VALID | SEXPT_STRING | SEXPT_MODIFIER));
+		}
+
+		list = get_map_container_modifiers(con_data_node);
+	} else {
+		UNREACHABLE("Unknown container type %d", (int)p_container->type);
+	}
+
+	if (list) {
+		head.add_list(list);
+	}
+
+	return head.next;
+}
+
+sexp_list_item *sexp_tree::get_list_container_modifiers()
+{
+	sexp_list_item head;
+
+	for (const auto& modifier : get_all_list_modifiers()) {
+		head.add_data(modifier.name, SEXPT_VALID | SEXPT_MODIFIER | SEXPT_STRING);
+	}
+
+	return head.next;
+}
+
+// FIXME TODO: if you use this function with remove-from-map SEXP, don't use SEXPT_MODIFIER
+sexp_list_item *sexp_tree::get_map_container_modifiers(int con_data_node) const
+{
+	sexp_list_item head;
+
+	Assert(tree_nodes[con_data_node].type & SEXPT_CONTAINER_DATA);
+
+	const auto *p_container = get_sexp_container(tree_nodes[con_data_node].text);
+	Assert(p_container != nullptr);
+
+	const auto &container = *p_container;
+	Assert(container.is_map());
+
+	int type = SEXPT_VALID | SEXPT_MODIFIER;
+	if (any(container.type & ContainerType::STRING_KEYS)) {
+		type |= SEXPT_STRING;
+	} else if (any(container.type & ContainerType::NUMBER_KEYS)) {
+		type |= SEXPT_NUMBER;
+	} else {
+		UNREACHABLE("Unknown map container key type %d", (int)container.type);
+	}
+
+	for (const auto &kv_pair : container.map_data) {
+		head.add_data(kv_pair.first.c_str(), type);
+	}
+
+	return head.next;
+}
+
+// get potential options for container multidimensional modifiers
+// the value could be either string or number, checked in-mission
+sexp_list_item *sexp_tree::get_container_multidim_modifiers(int con_data_node) const
+{
+	Assert(con_data_node != -1);
+	Assert(tree_nodes[con_data_node].type & SEXPT_CONTAINER_DATA);
+
+	sexp_list_item head;
+
+	if (is_node_eligible_for_special_argument(con_data_node)) {
+		head.add_data(SEXP_ARGUMENT_STRING, (SEXPT_VALID | SEXPT_STRING | SEXPT_MODIFIER));
+	}
+
+	// the FREDder might want to use a list modifier
+	sexp_list_item *list = get_list_container_modifiers();
+	Assert(list);
+
+	head.add_list(list);
+
+	return head.next;
+}
+
+// given a node's parent, check if node is eligible for being used with the special argument
+bool sexp_tree::is_node_eligible_for_special_argument(int parent_node) const
+{
+	Assert(parent_node != -1);
+
+	const int w_arg = find_ancestral_argument_number(OP_WHEN_ARGUMENT, parent_node);
+	const int e_arg = find_ancestral_argument_number(OP_EVERY_TIME_ARGUMENT, parent_node);
+	return w_arg >= 1 || e_arg >= 1; /* || the same for any future _ARGUMENT sexps */
+}
+
 // Deletes sexp_variable from sexp_tree.
 // resets tree to not include given variable, and resets text and type
 void sexp_tree::delete_sexp_tree_variable(const char* var_name) {
@@ -5018,9 +5265,9 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 	auto replace_op_menu = popup_menu->addMenu(tr("Replace Operator"));
 
 	auto replace_data_menu = popup_menu->addMenu(tr("Replace Data"));
-	auto replace_number_act = replace_data_menu->addAction(tr("Number"), this, []() {});
+	auto replace_number_act = replace_data_menu->addAction(tr("Number"), this, [this]() { replaceNumberDataHandler(); });
 	replace_number_act->setEnabled(false);
-	auto replace_string_act = replace_data_menu->addAction(tr("String"), this, []() {});
+	auto replace_string_act = replace_data_menu->addAction(tr("String"), this, [this]() { replaceStringDataHandler(); });
 	replace_string_act->setEnabled(false);
 	replace_data_menu->addSeparator();
 
@@ -5037,10 +5284,8 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 
 	auto add_modoify_container_act = popup_menu->addAction(tr("Add/Modify Container"), this, []() {});
 	add_modoify_container_act->setEnabled(false);
-	auto replace_container_name_act = popup_menu->addAction(tr("Replace Container Name"), this, []() {});
-	replace_container_name_act->setEnabled(false);
-	auto replace_container_data_act = popup_menu->addAction(tr("Replace Container Data"), this, []() {});
-	replace_container_data_act->setEnabled(false);
+	auto replace_container_name_menu = popup_menu->addMenu(tr("Replace Container Name"));
+	auto replace_container_data_menu = popup_menu->addMenu(tr("Replace Container Data"));
 
 	update_help(h);
 	//SelectDropTarget(h);  // WTF: Why was this here???
@@ -5059,21 +5304,10 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 		// get type of sexp_tree item clicked on
 		type = get_type(h);
 
-		// TEMP: return a grayed-out mennu for container-related nodes until qtFRED supports them
-		if (type & (SEXPT_CONTAINER_NAME | SEXPT_CONTAINER_DATA | SEXPT_MODIFIER)) {
-			// disable all the things
-			for (auto *action : popup_menu->actions()) {
-				action->setEnabled(false);
-			}
-			util::propagate_disabled_status(popup_menu.get());
-			return popup_menu;
-		}
-
-
 		int parent = tree_nodes[item_index].parent;
 		if (parent >= 0) {
 			op = get_operator_index(tree_nodes[parent].text);
-			Assert(op >= 0);
+			Assert(op >= 0 || tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
 			int first_arg = tree_nodes[parent].child;
 
 			// get arg count of item to replace
@@ -5089,7 +5323,18 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 				}
 			}
 
-			int op_type = query_operator_argument_type(op, Replace_count); // check argument type at this position
+			int op_type = 0;
+
+			if (op >= 0) {
+				op_type =
+					query_operator_argument_type(op, Replace_count); // check argument type at this position
+			} else {
+				Assert(tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+				const auto *p_container = get_sexp_container(tree_nodes[parent].text);
+				Assert(p_container != nullptr);
+				op_type = p_container->opf_type;
+			}
+			Assert(op_type > 0);
 
 			// special case don't allow replace data for variable names
 			// Goober5000 - why?  the only place this happens is when replacing the ambiguous argument in
@@ -5111,6 +5356,13 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 
 			// Goober5000 - certain types accept both integers and a list of strings
 			if (op_type == OPF_GAME_SND || op_type == OPF_FIREBALL || op_type == OPF_WEAPON_BANK_NUMBER) {
+				type = SEXPT_NUMBER | SEXPT_STRING;
+			}
+
+			// jg18 - container values (container data/map keys) can be anything
+			// the type is checked in check_sexp_syntax()
+			if (op_type == OPF_CONTAINER_VALUE)
+			{
 				type = SEXPT_NUMBER | SEXPT_STRING;
 			}
 
@@ -5155,6 +5407,11 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 							disabled = false;
 						}
 
+						// enable all for container multidimensionality
+						if ((type & SEXPT_MODIFIER) && Replace_count > 0) {
+							disabled = false;
+						}
+
 						char buf[128];
 						// append list of variable names and values
 						// set id as ID_VARIABLE_MENU + idx
@@ -5163,6 +5420,62 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 						auto action = replace_variable_menu->addAction(QString::fromUtf8(buf),
 																	   this,
 																	   [this, idx]() { handleReplaceVariableAction(idx); });
+						action->setEnabled(!disabled);
+					}
+				}
+
+				// Replace Container Name submenu
+				if (is_container_opf_type(op_type)) {
+					const auto &containers = get_all_sexp_containers();
+					for (int idx = 0; idx < (int)containers.size(); ++idx) {
+						const auto &container = containers[idx];
+
+						auto disabled = true;
+						// maybe gray flag MF_GRAYED
+
+						if (op_type == OPF_CONTAINER_NAME) {
+							// allow all containers
+							disabled = false;
+						} else if ((op_type == OPF_LIST_CONTAINER_NAME) && container.is_list()) {
+							disabled = false;
+						} else if ((op_type == OPF_MAP_CONTAINER_NAME) && container.is_map()) {
+							disabled = false;
+						}
+
+						auto action =
+							replace_container_name_menu->addAction(QString::fromStdString(container.container_name),
+								this,
+								[this, idx]() { handleReplaceContainerNameAction(idx); });
+						action->setEnabled(!disabled);
+					}
+				}
+
+				// Replace Container Data submenu
+				// disallowed on variable-type SEXP args, to prevent FSO/FRED crashes
+				if (op_type != OPF_VARIABLE_NAME) {
+					const auto &containers = get_all_sexp_containers();
+					for (int idx = 0; idx < (int)containers.size(); ++idx) {
+						const auto &container = containers[idx];
+						auto disabled = true;
+						// maybe gray flag MF_GRAYED
+
+						if ((type & SEXPT_STRING) && any(container.type & ContainerType::STRING_DATA)) {
+							disabled = false;
+						}
+
+						if ((type & SEXPT_NUMBER) && any(container.type & ContainerType::NUMBER_DATA)) {
+							disabled = false;
+						}
+
+						// enable all for container multidimensionality
+						if ((tree_nodes[item_index].type & SEXPT_MODIFIER) && Replace_count > 0) {
+							disabled = false;
+						}
+
+						auto action =
+							replace_container_data_menu->addAction(QString::fromStdString(container.container_name),
+								this,
+								[this, idx]() { handleReplaceContainerDataAction(idx); });
 						action->setEnabled(!disabled);
 					}
 				}
@@ -5398,7 +5711,59 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 
 	// change enabled status of 'add' type menu options.
 	add_type = 0;
-	if (tree_nodes[item_index].flags & OPERAND) {
+
+	// container multidimensionality
+	if (tree_nodes[item_index].type & SEXPT_CONTAINER_DATA) {
+		// using local var for add count to avoid breaking implicit assumptions about Add_count
+		const int modifier_node = tree_nodes[item_index].child;
+		Assert(modifier_node != -1);
+		const int modifier_add_count = count_args(modifier_node);
+
+		const auto *p_container = get_sexp_container(tree_nodes[item_index].text);
+		Assert(p_container);
+
+		if (modifier_add_count == 1 && p_container->is_list() &&
+			get_list_modifier(tree_nodes[modifier_node].text) == ListModifier::AT_INDEX) {
+			// only valid value is a list index
+			add_type = OPR_NUMBER;
+			add_number_act->setEnabled(true);
+		} else {
+			// container multidimensionality
+			add_type = OPR_STRING;
+
+			// the next thing we want to add could literally be any legal key for any map or the legal entries for a list container
+			// so give the FREDder a hand and offer the list modifiers, but only the FREDder can know if they're relevant
+			list = get_container_multidim_modifiers(item_index);
+			Assert(list);
+
+			if (list) {
+				sexp_list_item *ptr = nullptr;
+
+				int data_idx = 0;
+				ptr = list;
+				while (ptr) {
+					if (ptr->op >= 0) {
+						// enable operators with correct return type
+						auto iter = operator_action_mapping.find(Operators[ptr->op].value);
+						if (iter != operator_action_mapping.end()) {
+							iter->second->setEnabled(true);
+						}
+					} else {
+						// add data
+						add_data_menu->addAction(QString::fromStdString(ptr->text),
+							this,
+							[this, data_idx]() { addReplaceTypedDataHandler(data_idx, false); });
+					}
+
+					data_idx++;
+					ptr = ptr->next;
+				}
+			}
+
+			add_number_act->setEnabled(true);
+			add_string_act->setEnabled(true);
+		}
+	} else if (tree_nodes[item_index].flags & OPERAND) {
 		add_type = OPR_STRING;
 		int child = tree_nodes[item_index].child;
 		Add_count = count_args(child);
@@ -5454,6 +5819,10 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 
 		} else if (type == OPF_AI_GOAL) {
 			add_type = OPR_AI_GOAL;
+		} else if (type == OPF_CONTAINER_VALUE) {
+			// allow both strings and numbers
+			// types are checked in check_sepx_syntax()
+			add_number_act->setEnabled(true);
 		}
 
 		// add_type unchanged from above
@@ -5481,14 +5850,21 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 	if (parent >= 0) {
 		replace_type = OPR_STRING;
 		op = get_operator_index(tree_nodes[parent].text);
-		Assert(op >= 0);
+		Assert(op >= 0 || tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
 		int first_arg = tree_nodes[parent].child;
 		count = count_args(tree_nodes[parent].child);
 
-		// already at minimum number of arguments?
-		if (count <= Operators[op].min) {
+		if (op >= 0) {
+			// already at minimum number of arguments?
+			if (count <= Operators[op].min) {
+				delete_act->setEnabled(false);
+			}
+		} else if ((tree_nodes[parent].type & SEXPT_CONTAINER_DATA) && (item_index == first_arg)) {
+			// a container data node's initial modifier can't be deleted
+			Assert(tree_nodes[item_index].type & SEXPT_MODIFIER);
 			delete_act->setEnabled(false);
 		}
+
 
 		// get arg count of item to replace
 		Replace_count = 0;
@@ -5503,25 +5879,47 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 			}
 		}
 
-		// maybe gray delete
-		for (i = Replace_count + 1; i < count; i++) {
-			if (query_operator_argument_type(op, i - 1) != query_operator_argument_type(op, i)) {
-				delete_act->setEnabled(false);
-				break;
+		if (op >= 0) {
+			// maybe gray delete
+			for (i = Replace_count + 1; i < count; i++) {
+				if (query_operator_argument_type(op, i - 1) != query_operator_argument_type(op, i)) {
+					delete_act->setEnabled(false);
+					break;
+				}
 			}
-		}
 
-		type = query_operator_argument_type(op, Replace_count); // check argument type at this position
+			type = query_operator_argument_type(op, Replace_count); // check argument type at this position
+		} else {
+			Assert(tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+			const auto *p_container = get_sexp_container(tree_nodes[parent].text);
+			Assert(p_container != nullptr);
+			type = p_container->opf_type;
+		}
 
 		// special case reset type for ambiguous
 		if (type == OPF_AMBIGUOUS) {
 			type = get_modify_variable_type(parent);
 		}
 
-		list = get_listing_opf(type, parent, Replace_count);
+		// Container modifiers use their own list of possible arguments
+		if (tree_nodes[item_index].type & SEXPT_MODIFIER) {
+			const auto *p_container = get_sexp_container(tree_nodes[parent].text);
+			Assert(p_container != nullptr);
+			const int first_modifier = tree_nodes[parent].child;
+			if (Replace_count == 1 && p_container->is_list() &&
+				get_list_modifier(tree_nodes[first_modifier].text) == ListModifier::AT_INDEX) {
+				// only valid value is a list index (number)
+				list = nullptr;
+				replace_type = OPR_NUMBER;
+			} else {
+				list = get_container_modifiers(parent);
+			}
+		} else {
+			list = get_listing_opf(type, parent, Replace_count);
+		}
 
-		// special case don't allow replace data for variable names
-		if ((type != OPF_VARIABLE_NAME) && list) {
+		// special case don't allow replace data for variable or container names
+		if ((type != OPF_VARIABLE_NAME) && !is_container_opf_type(type) && list) {
 			sexp_list_item* ptr;
 
 			int data_idx = 0;
@@ -5570,6 +5968,15 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 			// even though these default to strings, we allow replacing them with index values
 			replace_type = OPR_POSITIVE;
 			replace_number_act->setEnabled(true);
+		} else if (is_container_opf_type(type)) {
+			// avoid the default OPR_STRING
+			// that way, Replace Data with String won't be enabled
+			replace_type = type;
+
+		} else if (type == OPF_CONTAINER_VALUE) {
+			// allow strings and numbers
+			// type is checked in check_sexp_syntax()
+			add_number_act->setEnabled(true);
 		}
 
 		// default to string
@@ -5577,24 +5984,9 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 			replace_string_act->setEnabled(true);
 		}
 
-		// modify string or number if (modify_variable)
-		if (Operators[op].value == OP_MODIFY_VARIABLE) {
-			int modify_type = get_modify_variable_type(parent);
-
-			if (modify_type == OPF_NUMBER) {
-				replace_number_act->setEnabled(true);
-				replace_string_act->setEnabled(false);
-			}
-			// no change for string type
-		} else if (Operators[op].value == OP_SET_VARIABLE_BY_INDEX) {
-			// it depends on which argument we are modifying
-			// first argument is always a number
-			if (Replace_count == 0) {
-				replace_number_act->setEnabled(true);
-				replace_string_act->setEnabled(false);
-			}
-				// second argument could be anything
-			else {
+		if (op >= 0) { // skip when handling "replace container data"
+			// modify string or number if (modify_variable)
+			if (Operators[op].value == OP_MODIFY_VARIABLE) {
 				int modify_type = get_modify_variable_type(parent);
 
 				if (modify_type == OPF_NUMBER) {
@@ -5602,6 +5994,64 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 					replace_string_act->setEnabled(false);
 				}
 				// no change for string type
+			} else if (Operators[op].value == OP_SET_VARIABLE_BY_INDEX) {
+				// it depends on which argument we are modifying
+				// first argument is always a number
+				if (Replace_count == 0) {
+					replace_number_act->setEnabled(true);
+					replace_string_act->setEnabled(false);
+				}
+				// second argument could be anything
+				else {
+					int modify_type = get_modify_variable_type(parent);
+
+					if (modify_type == OPF_NUMBER) {
+						replace_number_act->setEnabled(true);
+						replace_string_act->setEnabled(false);
+					}
+					// no change for string type
+				}
+			}
+		}
+
+		if (tree_nodes[item_index].type & SEXPT_MODIFIER) {
+			Assert(tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+			const int first_modifier_node = tree_nodes[parent].child;
+			Assert(first_modifier_node != -1);
+			const auto *p_container = get_sexp_container(tree_nodes[parent].text);
+			Assert(p_container);
+			const auto &container = *p_container;
+
+			if (Replace_count == 0) {
+				if (container.is_list()) {
+					// the only valid values are either the list modifiers or Replace Variable/Cotnainer Data with string data
+					replace_number_act->setEnabled(false);
+					replace_string_act->setEnabled(false);
+					edit_data_act->setEnabled(false);
+				} else if (container.is_map()) {
+					if (any(container.type & ContainerType::STRING_KEYS)) {
+						replace_number_act->setEnabled(false);
+						replace_string_act->setEnabled(true);
+					} else if (any(container.type & ContainerType::NUMBER_KEYS)) {
+						replace_number_act->setEnabled(true);
+						replace_string_act->setEnabled(false);
+					} else {
+						UNREACHABLE("Map container with type %d has unknown key type", (int)container.type);
+					}
+				} else {
+					UNREACHABLE("Unknown container type %d", (int)container.type);
+				}
+			} else if (Replace_count == 1 && container.is_list() &&
+				get_list_modifier(tree_nodes[first_modifier_node].text) ==
+				ListModifier::AT_INDEX) {
+				// only valid value is a list index
+				replace_number_act->setEnabled(true);
+				replace_string_act->setEnabled(false);
+			} else {
+				// multidimensional modifiers can be anything, including possibly a list modifier
+				// the value can be validated only at runtime (i.e., in-mission)
+				replace_number_act->setEnabled(true);
+				replace_string_act->setEnabled(true);
 			}
 		}
 
@@ -5635,7 +6085,7 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 	Assert(z >= -1);
 	if (z != -1) {
 		op = get_operator_index(tree_nodes[z].text);
-		Assert(op != -1);
+		Assert(op != -1 || tree_nodes[z].type & SEXPT_CONTAINER_DATA);
 		j = tree_nodes[z].child;
 		count = 0;
 		while (j != item_index) {
@@ -5643,7 +6093,14 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 			j = tree_nodes[j].next;
 		}
 
-		type = query_operator_argument_type(op, count); // check argument type at this position
+		if (op >= 0) {
+			type = query_operator_argument_type(op, count); // check argument type at this position
+		} else {
+			Assert(tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+			const auto *p_container = get_sexp_container(tree_nodes[z].text);
+			Assert(p_container != nullptr);
+			type = p_container->opf_type;
+		}
 
 	} else {
 		type = _interface->getRootReturnType();
@@ -5747,6 +6204,29 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 				add_paste_act->setEnabled(true);
 			}
 
+		} else if (Sexp_nodes[Sexp_clipboard].subtype == SEXP_ATOM_CONTAINER) {
+			// TODO: check for strictly typed container keys/data
+			const auto *p_container = get_sexp_container(Sexp_nodes[Sexp_clipboard].text);
+			// if-check in case the container was renamed/deleted after the container data was cut/copied
+			if (p_container != nullptr) {
+				const auto &container = *p_container;
+				if (any(container.type & ContainerType::NUMBER_DATA)) {
+					// there's no way to check for OPR_POSITIVE, since the value
+					// is known only in-mission, so we'll handle OPR_NUMBER only
+					if (replace_type == OPR_NUMBER)
+						paste_act->setEnabled(true);
+					if (add_type == OPR_NUMBER)
+						add_paste_act->setEnabled(true);
+				} else if (any(container.type & ContainerType::STRING_DATA)) {
+					if (replace_type == OPR_STRING)
+						paste_act->setEnabled(true);
+					if (add_type == OPR_STRING)
+						add_paste_act->setEnabled(true);
+				} else {
+					UNREACHABLE("Unknown container data type %d", (int)container.type);
+				}
+			}
+
 		} else if (Sexp_nodes[Sexp_clipboard].subtype == SEXP_ATOM_NUMBER) {
 			if ((replace_type == OPR_POSITIVE) && (atoi(CTEXT(Sexp_clipboard)) > -1)) {
 				edit_data_act->setEnabled(true);
@@ -5775,6 +6255,19 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 
 	if (delete_act->isEnabled()) {
 		cut_act->setEnabled(true);
+	}
+
+	// all of the following restrictions may be revisited in the future
+	if (tree_nodes[item_index].type & (SEXPT_MODIFIER | SEXPT_CONTAINER_NAME)) {
+		// modifiers and container names don't support cut/copy/paste
+		cut_act->setEnabled(false);
+		copy_act->setEnabled(false);
+		paste_act->setEnabled(false);
+	}
+	// can't use else-if here, because container data is a valid modifier
+	if (tree_nodes[item_index].type & SEXPT_CONTAINER_DATA) {
+		// container data nodes don't support add-pasting modifiers
+		add_paste_act->setEnabled(false);
 	}
 
 	util::propagate_disabled_status(popup_menu.get());
@@ -5925,6 +6418,26 @@ void sexp_tree::pasteActionHandler() {
 			}
 		}
 
+	} else if (Sexp_nodes[Sexp_clipboard].subtype == SEXP_ATOM_CONTAINER) {
+		expand_operator(item_index);
+		const auto *p_container = get_sexp_container(Sexp_nodes[Sexp_clipboard].text);
+		Assert(p_container);
+		const auto &container = *p_container;
+		// this should always be true, but just in case
+		const bool has_modifiers = (Sexp_nodes[Sexp_clipboard].first != -1);
+		int new_type = tree_nodes[item_index].type & (~(SEXPT_VARIABLE | SEXPT_CONTAINER_NAME) | SEXPT_CONTAINER_DATA);
+		replace_container_data(container, new_type, false, true, !has_modifiers);
+		if (has_modifiers) {
+			load_branch(Sexp_nodes[Sexp_clipboard].first, item_index);
+			int i = tree_nodes[item_index].child;
+			while (i != -1) {
+				add_sub_tree(i, tree_nodes[item_index].handle);
+				i = tree_nodes[i].next;
+			}
+		} else {
+			add_default_modifier(container);
+		}
+
 	} else if (Sexp_nodes[Sexp_clipboard].subtype == SEXP_ATOM_NUMBER) {
 		Assert(Sexp_nodes[Sexp_clipboard].rest == -1);
 		if (Sexp_nodes[Sexp_clipboard].type & SEXP_FLAG_VARIABLE) {
@@ -5988,16 +6501,42 @@ void sexp_tree::insertOperatorAction(int op) {
 	modified();
 }
 void sexp_tree::addNumberDataHandler() {
-	int theNode;
+	int theType = SEXPT_NUMBER | SEXPT_VALID;
+	if (tree_nodes[item_index].type & SEXPT_CONTAINER_DATA) {
+		theType |= SEXPT_MODIFIER;
+	}
 
-	theNode = add_data("number", (SEXPT_NUMBER | SEXPT_VALID));
+	int theNode = add_data("number", theType);
 	beginItemEdit(tree_nodes[theNode].handle);
 }
 void sexp_tree::addStringDataHandler() {
-	int theNode;
+	int theType = SEXPT_STRING | SEXPT_VALID;
+	if (tree_nodes[item_index].type & SEXPT_CONTAINER_DATA) {
+		theType |= SEXPT_MODIFIER;
+	}
 
-	theNode = add_data("string", (SEXPT_STRING | SEXPT_VALID));
+	int theNode = add_data("string", theType);
 	beginItemEdit(tree_nodes[theNode].handle);
+}
+void sexp_tree::replaceNumberDataHandler() {
+	expand_operator(item_index);
+	int type = SEXPT_NUMBER | SEXPT_VALID;
+	if (tree_nodes[item_index].type & SEXPT_MODIFIER) {
+		type |= SEXPT_MODIFIER;
+	}
+
+	replace_data("number", type);
+	beginItemEdit(tree_nodes[item_index].handle);
+}
+void sexp_tree::replaceStringDataHandler() {
+	expand_operator(item_index);
+	int type = SEXPT_STRING | SEXPT_VALID;
+	if (tree_nodes[item_index].type & SEXPT_MODIFIER) {
+		type |= SEXPT_MODIFIER;
+	}
+
+	replace_data("string", type);
+	beginItemEdit(tree_nodes[item_index].handle);
 }
 void sexp_tree::beginItemEdit(QTreeWidgetItem* item) {
 	_currently_editing = true;
@@ -6005,18 +6544,23 @@ void sexp_tree::beginItemEdit(QTreeWidgetItem* item) {
 }
 void sexp_tree::addReplaceTypedDataHandler(int data_idx, bool replace) {
 	Assert(item_index >= 0);
-	int op;
-	if (replace) {
-		op = get_operator_index(tree_nodes[tree_nodes[item_index].parent].text);
+	const int op_node = replace ? tree_nodes[item_index].parent : item_index;
+
+	sexp_list_item *list = nullptr;
+	if (tree_nodes[op_node].type & SEXPT_CONTAINER_DATA) {
+		// container data modifier
+		if (replace && Replace_count == 0) {
+			list = get_container_modifiers(op_node);
+		} else {
+			list = get_container_multidim_modifiers(op_node);
+		}
 	} else {
-		op = get_operator_index(tree_nodes[item_index].text);
+		int op = get_operator_index(tree_nodes[op_node].text);
+		Assert(op >= 0);
+		auto argcount = replace ? Replace_count : Add_count;
+		auto type = query_operator_argument_type(op, argcount);
+		list = get_listing_opf(type, item_index, argcount);
 	}
-	Assert(op >= 0);
-
-	auto argcount = replace ? Replace_count : Add_count;
-
-	auto type = query_operator_argument_type(op, argcount);
-	auto list = get_listing_opf(type, item_index, argcount);
 	Assert(list);
 
 	auto ptr = list;
@@ -6053,6 +6597,24 @@ void sexp_tree::addPasteActionHandler() {
 			}
 		}
 
+	} else if (Sexp_nodes[Sexp_clipboard].subtype == SEXP_ATOM_CONTAINER) {
+		expand_operator(item_index);
+		add_container_data(Sexp_nodes[Sexp_clipboard].text);
+		const int modifier_node = Sexp_nodes[Sexp_clipboard].first;
+		if (modifier_node != -1) {
+			load_branch(modifier_node, item_index);
+			int i = tree_nodes[item_index].child;
+			while (i != -1) {
+				add_sub_tree(i, tree_nodes[item_index].handle);
+				i = tree_nodes[i].next;
+			}
+		} else {
+			// this shouldn't happen, but just in case
+			const auto *p_container = get_sexp_container(Sexp_nodes[Sexp_clipboard].text);
+			Assert(p_container);
+			add_default_modifier(*p_container);
+		}
+
 	} else if (Sexp_nodes[Sexp_clipboard].subtype == SEXP_ATOM_NUMBER) {
 		Assert(Sexp_nodes[Sexp_clipboard].rest == -1);
 		expand_operator(item_index);
@@ -6085,8 +6647,8 @@ void sexp_tree::handleReplaceVariableAction(int id) {
 	int type = get_type(currentItem());
 	Assert( (type & SEXPT_NUMBER) || (type & SEXPT_STRING) );
 
-	// don't do type check for modify-variable
-	if (Modify_variable) {
+	// don't do type check for modify-variable or OPF_CONTAINER_VALUE (can be either type)
+	if (Modify_variable || query_node_argument_type(item_index) == OPF_CONTAINER_VALUE) {
 		if (Sexp_variables[id].type & SEXP_VARIABLE_NUMBER) {
 			type = SEXPT_NUMBER;
 		} else if (Sexp_variables[id].type & SEXP_VARIABLE_STRING) {
@@ -6109,6 +6671,37 @@ void sexp_tree::handleReplaceVariableAction(int id) {
 	// Replace data
 	replace_variable_data(id, (type | SEXPT_VARIABLE));
 
+}
+void sexp_tree::handleReplaceContainerNameAction(int idx) {
+	Assert(item_index >= 0);
+	Assert(is_container_argument(item_index));
+
+	const auto &containers = get_all_sexp_containers();
+	Assertion((idx >= 0) && (idx < (int)containers.size()),
+		"Unknown Container");
+
+	const int type = get_type(currentItem());
+	Assert(type & SEXPT_STRING);
+
+	replace_container_name(containers[idx]);
+}
+void sexp_tree::handleReplaceContainerDataAction(int idx) {
+	Assert(item_index >= 0);
+
+	const auto &containers = get_all_sexp_containers();
+	Assertion((idx >= 0) && (idx < (int)containers.size()),
+		"Unknown Container");
+
+	int type = get_type(currentItem());
+	Assert((type & SEXPT_NUMBER) || (type & SEXPT_STRING));
+
+	// variable/container name don't mix with container data
+	// DISCUSSME: what about variable name as SEXP arg type?
+	type &= ~(SEXPT_VARIABLE | SEXPT_CONTAINER_NAME);
+	replace_container_data(containers[idx], (type | SEXPT_CONTAINER_DATA), true, true, true);
+
+	auto *handle = tree_nodes[item_index].handle;
+	expand_branch(handle);
 }
 void sexp_tree::handleNewItemSelected() {
 	auto selectedItem = currentItem();
