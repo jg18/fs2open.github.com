@@ -1026,6 +1026,8 @@ add_file_folder("Parse"
 	parse/encrypt.h
 	parse/generic_log.cpp
 	parse/generic_log.h
+	parse/parsehi.cpp
+	parse/parsehi.h
 	parse/parselo.cpp
 	parse/parselo.h
 	parse/sexp.cpp
@@ -1287,6 +1289,8 @@ add_file_folder("Scripting\\\\Api\\\\Objs"
 	scripting/api/objs/controls.h
 	scripting/api/objs/debris.cpp
 	scripting/api/objs/debris.h
+	scripting/api/objs/decaldefinition.cpp
+	scripting/api/objs/decaldefinition.h
 	scripting/api/objs/enums.cpp
 	scripting/api/objs/enums.h
 	scripting/api/objs/event.cpp

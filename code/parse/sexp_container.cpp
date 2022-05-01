@@ -110,7 +110,7 @@ bool sexp_container::type_matches(const sexp_container &container) const
 
 ListModifier get_list_modifier(const char *text, bool accept_prefix)
 {
-	Assert(text != nullptr);
+	Assertion(text != nullptr, "Attempt to get list modifier from null name. Please report!");
 
 	for (const auto &modifier_obj : List_modifiers) {
 		if (accept_prefix && !strnicmp(modifier_obj.name, text, strlen(modifier_obj.name))) {
@@ -126,7 +126,7 @@ ListModifier get_list_modifier(const char *text, bool accept_prefix)
 
 const char *get_list_modifier_name(const ListModifier modifier)
 {
-	Assert(modifier != ListModifier::INVALID);
+	Assertion(modifier != ListModifier::INVALID, "Attempt to get name of invalid list modifier. Please report!");
 
 	for (const auto &modifier_obj : List_modifiers) {
 		if (modifier_obj.modifier == modifier) {
@@ -308,7 +308,7 @@ void stuff_sexp_map_containers()
 }
 
 sexp_container *get_sexp_container(const char *name) {
-	Assert(name != nullptr);
+	Assertion(name != nullptr, "Attempt to look up container from null name. Please report!");
 	// unlike get_sexp_container_special(), empty name is ok
 	// even if the result will always be nullptr
 	// it can happen if CTEXT() returns empty str
@@ -362,7 +362,7 @@ bool get_replace_text_for_modifier(const SCP_string &text,
 		const size_t key_ends_here = text.find(sexp_container::DELIM, lookHere);
 		if (key_ends_here == SCP_string::npos) {
 			Warning(LOCATION,
-				"sexp_container_replace_refs_with_values() found a map container called %s to replace but the key is "
+				"Attempt to replace text from map container %s but the key is "
 				"missing a final '&'",
 				container.container_name.c_str());
 			return false;
@@ -373,7 +373,7 @@ bool get_replace_text_for_modifier(const SCP_string &text,
 
 		if (iter == container.map_data.end()) {
 			Warning(LOCATION,
-				"sexp_container_replace_refs_with_values() found a map container called %s but the key %s is not found",
+				"Attempt to replace text from map container %s with nonexistent key %s",
 				container.container_name.c_str(),
 				key.c_str());
 			return false;
@@ -384,7 +384,10 @@ bool get_replace_text_for_modifier(const SCP_string &text,
 		num_chars_to_replace += key.length();
 	} else {
 		// for list containers, check if this matches a list modifier
-		Assert(container.is_list());
+		Assertion(container.is_list(),
+			"Attempt to replace text using container %s with unknwon type %d. Please report!",
+			container.container_name.c_str(),
+			(int)container.type);
 
 		if (container.list_data.empty()) {
 			Warning(LOCATION, "Attempt to replace text using empty list container %s", container.container_name.c_str());
@@ -395,8 +398,7 @@ bool get_replace_text_for_modifier(const SCP_string &text,
 
 		if (modifier == ListModifier::INVALID) {
 			Warning(LOCATION,
-				"sexp_container_replace_refs_with_values() found a list container called %s to replace but the modifer "
-				"is not recognised",
+				"Attempt to reaplce text from list container %s using unrecognized list modifer",
 				container.container_name.c_str());
 			return false;
 		}
@@ -441,11 +443,16 @@ bool get_replace_text_for_modifier(const SCP_string &text,
 
 		case ListModifier::AT_INDEX:
 			number_string = text.substr(lookHere + modifier_length);
-			Assert(!number_string.empty());
+			if (number_string.empty()) {
+				Warning(LOCATION,
+					"Container text replacement found empty index into list container %s",
+					container.container_name.c_str());
+				return false;
+			}
 			data_index = atoi(number_string.c_str());
 			if (data_index < 0 || data_index >= (int)list_data.size()) {
 				Warning(LOCATION,
-					"sexp_container_replace_refs_with_values() found invalid index '%s' into list container %s",
+					"Container text replacement found invalid index '%s' into list container %s",
 					number_string.c_str(),
 					container.container_name.c_str());
 				return false;
@@ -457,7 +464,7 @@ bool get_replace_text_for_modifier(const SCP_string &text,
 			break;
 
 		default:
-			Warning(LOCATION, "sexp_container_replace_refs_with_values() found a container called %s to replace but the modifer is not recognised", container.container_name.c_str());
+			UNREACHABLE("Unhandled list modifier %d. Please report!", (int)modifier);
 			return false;
 		}
 
@@ -479,7 +486,7 @@ bool get_replace_text_for_modifier(const SCP_string &text,
 /**
 * Replace container references in a string with their values
 **/
-bool sexp_container_replace_refs_with_values(SCP_string& text)
+bool sexp_container_replace_refs_with_values(SCP_string &text)
 {
 	bool replaced_anything = false;
 	size_t lookHere = 0;
@@ -505,8 +512,8 @@ bool sexp_container_replace_refs_with_values(SCP_string& text)
 					// no modifier/key specified - ignore this matching container name, as the replacement is malformed
 					lookHere = foundHere + 1;
 					Warning(LOCATION,
-						"sexp_container_replace_refs_with_values() found a container called %s to replace but there is "
-						"no modifer in the string. This format is expected for lists &Container_Name&Modifier&. This "
+						"Attempt to replace text from container %s with no modifier. "
+						"This format is expected for lists &Container_Name&Modifier&. This "
 						"format is expected for maps &Container_Name&Key&",
 						p_container->container_name.c_str());
 					continue;
@@ -531,7 +538,7 @@ bool sexp_container_replace_refs_with_values(SCP_string& text)
 				// avoid potential infinite loops
 				if (num_replacements >= 50) {
 					Warning(LOCATION,
-						"sexp_container_replace_refs_with_values() found potential multidimensionality infinite loop "
+						"Container text replacement found potential infinite loop in multidimensionality "
 						"in '%s' at position %d.",
 						text.c_str(),
 						(int)lookHere);
@@ -553,18 +560,18 @@ bool sexp_container_replace_refs_with_values(SCP_string& text)
 	return replaced_anything;
 }
 
-bool sexp_container_replace_refs_with_values(char* text, size_t max_len)
+bool sexp_container_replace_refs_with_values(char *text, size_t max_size)
 {
-	Assert(text != nullptr);
+	Assertion(text != nullptr, "Attempt to perform container text replacement with null text. Please report!");
 
 	SCP_string text_str = text;
 
 	bool replaced_anything = sexp_container_replace_refs_with_values(text_str);
 
 	if (replaced_anything) {
-		Assert(max_len > 0);
-		strncpy(text, text_str.c_str(), max_len - 1);
-		text[max_len - 1] = 0;
+		Assertion(max_size > 0, "Attempt to perform container text replacement with zero-sized buffer. Please report!");
+		strncpy(text, text_str.c_str(), max_size - 1);
+		text[max_size - 1] = 0;
 	}
 
 	return replaced_anything;
@@ -592,8 +599,7 @@ bool are_containers_modifiable()
 	}
 }
 
-// TODO: see if this code can be combined with similar code for text replacement
-bool sexp_container_CTEXT_helper(int& node, sexp_container& container, SCP_string& result)
+bool sexp_container_CTEXT_helper(int &node, sexp_container &container, SCP_string &result)
 {
 	if (container.is_map()) {
 		if (container.map_data.empty()) {

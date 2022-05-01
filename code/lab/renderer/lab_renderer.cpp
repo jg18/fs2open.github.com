@@ -247,7 +247,7 @@ void LabRenderer::useBackground(const SCP_string& mission_name) {
 	int ambient_light_level;
 	extern const char* Neb2_filenames[];
 
-	char envmap_name[MAX_FILENAME_LEN];
+	char envmap_name[MAX_FILENAME_LEN] = {0};
 
 	currentMissionBackground = mission_name;
 
@@ -313,13 +313,15 @@ void LabRenderer::useBackground(const SCP_string& mission_name) {
 			if (optional_string("+Neb2:")) {
 				nebula = true;
 				stuff_string(Neb2_texture_name, F_NAME, MAX_FILENAME_LEN);
-			} else if (optional_string("+Neb2Color:")) {
+			}
+			if (optional_string("+Neb2Color:")) {
 				nebula = true;
 				int neb_colors[3];
 				stuff_int_list(neb_colors, 3, RAW_INTEGER_TYPE);
 				Neb2_fog_color[0] = (ubyte)neb_colors[0];
 				Neb2_fog_color[1] = (ubyte)neb_colors[1];
 				Neb2_fog_color[2] = (ubyte)neb_colors[2];
+				flags |= Mission::Mission_Flags::Neb2_fog_color_override;
 			}
 
 			if (nebula){
@@ -327,7 +329,7 @@ void LabRenderer::useBackground(const SCP_string& mission_name) {
 				stuff_int(&Neb2_poof_flags);
 
 				if (flags[Mission::Mission_Flags::Fullneb]) {
-					neb2_post_level_init();
+					neb2_post_level_init(flags[Mission::Mission_Flags::Neb2_fog_color_override]);
 				}
 			}
 
@@ -437,7 +439,10 @@ void LabRenderer::useBackground(const SCP_string& mission_name) {
 			if (strlen(envmap_name)) {
 				// Load the mission map so we can use it later
 				ENVMAP = bm_load(The_mission.envmap_name);
-				return;
+				// Load may fail, if so, don't exit early. Proceed to make render target.
+				if (ENVMAP > 1) {
+					return;
+				}
 			}
 
 			gr_screen.envmap_render_target = bm_make_render_target(size, size, gen_flags);

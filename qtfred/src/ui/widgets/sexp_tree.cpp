@@ -3880,13 +3880,12 @@ sexp_list_item* sexp_tree::get_listing_opf_ship_with_bay() {
 }
 
 sexp_list_item* sexp_tree::get_listing_opf_soundtrack_name() {
-	int i;
 	sexp_list_item head;
 
 	head.add_data("<No Music>");
 
-	for (i = 0; i < Num_soundtracks; i++) {
-		head.add_data(Soundtracks[i].name);
+	for (auto &st: Soundtracks) {
+		head.add_data(st.name);
 	}
 
 	return head.next;
@@ -5265,9 +5264,11 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 	auto replace_op_menu = popup_menu->addMenu(tr("Replace Operator"));
 
 	auto replace_data_menu = popup_menu->addMenu(tr("Replace Data"));
-	auto replace_number_act = replace_data_menu->addAction(tr("Number"), this, [this]() { replaceNumberDataHandler(); });
+	auto replace_number_act =
+		replace_data_menu->addAction(tr("Number"), this, [this]() { replaceNumberDataHandler(); });
 	replace_number_act->setEnabled(false);
-	auto replace_string_act = replace_data_menu->addAction(tr("String"), this, [this]() { replaceStringDataHandler(); });
+	auto replace_string_act =
+		replace_data_menu->addAction(tr("String"), this, [this]() { replaceStringDataHandler(); });
 	replace_string_act->setEnabled(false);
 	replace_data_menu->addSeparator();
 
@@ -5282,8 +5283,8 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 
 	popup_menu->addSection("Containers");
 
-	auto add_modoify_container_act = popup_menu->addAction(tr("Add/Modify Container"), this, []() {});
-	add_modoify_container_act->setEnabled(false);
+	auto add_modify_container_act = popup_menu->addAction(tr("Add/Modify Container"), this, []() {});
+	add_modify_container_act->setEnabled(false);
 	auto replace_container_name_menu = popup_menu->addMenu(tr("Replace Container Name"));
 	auto replace_container_data_menu = popup_menu->addMenu(tr("Replace Container Data"));
 
@@ -5307,7 +5308,9 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 		int parent = tree_nodes[item_index].parent;
 		if (parent >= 0) {
 			op = get_operator_index(tree_nodes[parent].text);
-			Assert(op >= 0 || tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+			Assertion(op >= 0 || tree_nodes[parent].type & SEXPT_CONTAINER_DATA,
+				"Encountered unknown SEXP operator %s. Please report!",
+				tree_nodes[parent].text);
 			int first_arg = tree_nodes[parent].child;
 
 			// get arg count of item to replace
@@ -5329,9 +5332,13 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 				op_type =
 					query_operator_argument_type(op, Replace_count); // check argument type at this position
 			} else {
-				Assert(tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+				Assertion(tree_nodes[parent].type & SEXPT_CONTAINER_DATA,
+					"Unknown SEXP operator %s. Please report!",
+					tree_nodes[parent].text);
 				const auto *p_container = get_sexp_container(tree_nodes[parent].text);
-				Assert(p_container != nullptr);
+				Assertion(p_container != nullptr,
+					"Found modifier for unknown container %s. Please report!",
+					tree_nodes[parent].text);
 				op_type = p_container->opf_type;
 			}
 			Assert(op_type > 0);
@@ -5850,7 +5857,9 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 	if (parent >= 0) {
 		replace_type = OPR_STRING;
 		op = get_operator_index(tree_nodes[parent].text);
-		Assert(op >= 0 || tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+		Assertion(op >= 0 || tree_nodes[parent].type & SEXPT_CONTAINER_DATA,
+			"Encountered unknown SEXP operator %s. Please report!",
+			tree_nodes[parent].text);
 		int first_arg = tree_nodes[parent].child;
 		count = count_args(tree_nodes[parent].child);
 

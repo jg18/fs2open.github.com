@@ -76,6 +76,7 @@
 #include "render/batching.h"
 #include "scripting/api/objs/vecmath.h"
 #include "ship/afterburner.h"
+#include "ship/awacs.h"
 #include "ship/ship.h"
 #include "ship/shipcontrails.h"
 #include "ship/shipfx.h"
@@ -524,6 +525,8 @@ ship_flag_name Ship_flag_names[] = {
 	{ Ship_Flags::No_disabled_self_destruct,	"no-disabled-self-destruct" },
 	{ Ship_Flags::Hide_mission_log,				"hide-in-mission-log" },
 	{ Ship_Flags::No_passive_lightning,			"no-ship-passive-lightning" },
+	{ Ship_Flags::Fail_sound_locked_primary, 	"fail-sound-locked-primary"},
+	{ Ship_Flags::Fail_sound_locked_secondary, 	"fail-sound-locked-secondary"}
 };
 
 static int Laser_energy_out_snd_timer;	// timer so we play out of laser sound effect periodically
@@ -3724,9 +3727,8 @@ static void parse_ship_values(ship_info* sip, const bool is_template, const bool
 
 	if (optional_string("$Flags:"))
 	{
-		// we'll assume the list will contain no more than 20 distinct tokens
-		char ship_strings[20][NAME_LENGTH];
-		int num_strings = (int)stuff_string_list(ship_strings, 20);
+		SCP_vector<SCP_string> ship_strings;
+		stuff_string_list(ship_strings);
 
 		int ship_type_index = -1;
 
@@ -3742,14 +3744,14 @@ static void parse_ship_values(ship_info* sip, const bool is_template, const bool
 			sip->flags.set(Ship::Info_Flags::Has_display_name, has_display_name);
 		}
 
-		for (auto i = 0; i < num_strings; i++)
+		for (const auto &flag : ship_strings)
 		{
 			// get ship type from ship flags
-			const char *ship_type = ship_strings[i];
+			const char *cur_flag = flag.c_str();
 			bool flag_found = false;
 
 			// look it up in the object types table
-			ship_type_index = ship_type_name_lookup(ship_type);
+			ship_type_index = ship_type_name_lookup(cur_flag);
 
 			// set ship class type
 			if ((ship_type_index >= 0) && (sip->class_type < 0))
@@ -3757,7 +3759,7 @@ static void parse_ship_values(ship_info* sip, const bool is_template, const bool
 
 			// check various ship flags
 			for (size_t idx = 0; idx < Num_ship_flags; idx++) {
-				if ( !stricmp(Ship_flags[idx].name, ship_strings[i]) ) {
+				if ( !stricmp(Ship_flags[idx].name, cur_flag) ) {
 					flag_found = true;
 
 					if (!Ship_flags[idx].in_use)
@@ -3770,25 +3772,25 @@ static void parse_ship_values(ship_info* sip, const bool is_template, const bool
 			}
 
 			// catch typos or deprecations
-			if (!stricmp(ship_strings[i], "no-collide") || !stricmp(ship_strings[i], "no_collide")) {
+			if (!stricmp(cur_flag, "no-collide") || !stricmp(cur_flag, "no_collide")) {
 				flag_found = true;
 				sip->flags.set(Ship::Info_Flags::No_collide);
 			}
-			if (!stricmp(ship_strings[i], "dont collide invisible")) {
+			if (!stricmp(cur_flag, "dont collide invisible")) {
 				flag_found = true;
 				sip->flags.set(Ship::Info_Flags::Ship_class_dont_collide_invis);
 			}
-			if (!stricmp(ship_strings[i], "dont bank when turning")) {
+			if (!stricmp(cur_flag, "dont bank when turning")) {
 				flag_found = true;
 				sip->flags.set(Ship::Info_Flags::Dont_bank_when_turning);
 			}
-			if (!stricmp(ship_strings[i], "dont clamp max velocity")) {
+			if (!stricmp(cur_flag, "dont clamp max velocity")) {
 				flag_found = true;
 				sip->flags.set(Ship::Info_Flags::Dont_clamp_max_velocity);
 			}
 
 			if ( !flag_found && (ship_type_index < 0) )
-				Warning(LOCATION, "Bogus string in ship flags: %s\n", ship_strings[i]);
+				Warning(LOCATION, "Bogus string in ship flags: %s\n", cur_flag);
 		}
 
 		// set original status of tech database flags - Goober5000
@@ -6351,7 +6353,10 @@ void ship::clear()
 
 	primitive_sensor_range = DEFAULT_SHIP_PRIMITIVE_SENSOR_RANGE;
 
-	ship_replacement_textures = NULL;
+	if (ship_replacement_textures != nullptr) {
+		vm_free(ship_replacement_textures);
+	}
+	ship_replacement_textures = nullptr;
 
 	current_viewpoint = -1;
 
@@ -7326,6 +7331,9 @@ void ship_render_cockpit(object *objp)
 	vm_vec_unrotate(&pos, &sip->cockpit_offset, &eye_ori);
 
 	bool shadow_override_backup = Shadow_override;
+	float fov_backup = Proj_fov;
+
+	g3_set_fov(Sexp_fov <= 0.0f ? COCKPIT_ZOOM_DEFAULT : Sexp_fov);
 
 	//Deal with the model
 	model_clear_instance(sip->cockpit_model_num);
@@ -7360,6 +7368,8 @@ void ship_render_cockpit(object *objp)
 	render_info.set_replacement_textures(Player_cockpit_textures);
 
 	model_render_immediate(&render_info, sip->cockpit_model_num, &eye_ori, &pos);
+
+	Proj_fov = fov_backup;
 
 	gr_end_view_matrix();
 	gr_end_proj_matrix();
@@ -7970,7 +7980,7 @@ void ship_cleanup(int shipnum, int cleanup_mode)
 			Script_system.SetHookObject("Ship", objp);
 			Script_system.SetHookVar("Method", 's', departmethod);
 			Script_system.SetHookVar("JumpNode", 's', jumpnode_name);
-			Script_system.RunCondition(CHA_ONSHIPDEPART);
+			Script_system.RunCondition(CHA_ONSHIPDEPART, objp);
 			Script_system.RemHookVars({"Ship", "Method", "JumpNode"});
 		}
 	}
@@ -9547,7 +9557,7 @@ void ship_process_post(object * obj, float frametime)
  */
 static void ship_set_default_weapons(ship *shipp, ship_info *sip)
 {
-	int			i, j;
+	int			i;
 	polymodel	*pm;
 	ship_weapon *swp = &shipp->weapons;
 	weapon_info *wip;
@@ -9573,9 +9583,7 @@ static void ship_set_default_weapons(ship *shipp, ship_info *sip)
 		Error(LOCATION, "There are %d primary banks in the model file,\nbut only %d primary banks specified for %s.\nThis must be fixed, as it will cause crashes.\n", pm->n_guns, sip->num_primary_banks, sip->name);
 		for ( i = sip->num_primary_banks; i < pm->n_guns; i++ ) {
 			// Make unspecified weapon for bank be a laser
-			for ( j = 0; j < Num_player_weapon_precedence; j++ ) {
-				Assertion((Player_weapon_precedence[j] > 0), "Error reading player weapon precedence list. Check weapons.tbl for $Player Weapon Precedence entry, and correct as necessary.\n");
-				int weapon_id = Player_weapon_precedence[j];
+			for (const auto &weapon_id : Player_weapon_precedence) {
 				if ( (Weapon_info[weapon_id].subtype == WP_LASER) || (Weapon_info[weapon_id].subtype == WP_BEAM) ) {
 					swp->primary_bank_weapons[i] = weapon_id;
 					break;
@@ -9596,9 +9604,7 @@ static void ship_set_default_weapons(ship *shipp, ship_info *sip)
 		Error(LOCATION, "There are %d secondary banks in the model file,\nbut only %d secondary banks specified for %s.\nThis must be fixed, as it will cause crashes.\n", pm->n_missiles, sip->num_secondary_banks, sip->name);
 		for ( i = sip->num_secondary_banks; i < pm->n_missiles; i++ ) {
 			// Make unspecified weapon for bank be a missile
-			for ( j = 0; j < Num_player_weapon_precedence; j++ ) {
-				Assertion((Player_weapon_precedence[j] > 0), "Error reading player weapon precedence list. Check weapons.tbl for $Player Weapon Precedence entry, and correct as necessary.\n");
-				int weapon_id = Player_weapon_precedence[j];
+			for (const auto &weapon_id : Player_weapon_precedence) {
 				if (Weapon_info[weapon_id].subtype == WP_MISSILE) {
 					swp->secondary_bank_weapons[i] = weapon_id;
 					break;
@@ -9632,9 +9638,9 @@ static void ship_set_default_weapons(ship *shipp, ship_info *sip)
 				swp->primary_bank_ammo[i] = (int)std::lround(capacity / size);
 				swp->primary_bank_start_ammo[i] = swp->primary_bank_ammo[i];
 			}
-
-			swp->primary_bank_capacity[i] = sip->primary_bank_ammo_capacity[i];
 		}
+
+		swp->primary_bank_capacity[i] = sip->primary_bank_ammo_capacity[i];
 	}
 
 	swp->num_secondary_banks = sip->num_secondary_banks;
@@ -9961,15 +9967,17 @@ int ship_create(matrix* orient, vec3d* pos, int ship_type, const char* ship_name
 	// Cyborg17 - The final check here was supposed to prevent duplicate names from being on the mission log and causing chaos,
 	// but it breaks multi, so there will just be a warning on debug instead.
 	if ((ship_name == nullptr) || (ship_name_lookup(ship_name) >= 0) /*|| (ship_find_exited_ship_by_name(ship_name) >= 0)*/) {
+		// regular name, regular suffix
 		char suffix[NAME_LENGTH];
+		strcpy_s(shipp->ship_name, Ship_info[ship_type].name);
 		sprintf(suffix, NOX(" %d"), n);
 
-		// ensure complete ship name doesn't overflow the buffer
-		auto name_len = std::min(NAME_LENGTH - strlen(suffix) - 1, strlen(Ship_info[ship_type].name));
-		Assert(name_len > 0);
+		// default names shouldn't have a hashed suffix
+		end_string_at_first_hash_symbol(shipp->ship_name);
 
-		strncpy(shipp->ship_name, Ship_info[ship_type].name, name_len);
-		strcpy(shipp->ship_name + name_len, suffix);
+		// build it
+		Assert(strlen(shipp->ship_name) + strlen(suffix) < NAME_LENGTH - 1);
+		strcat_s(shipp->ship_name, suffix);
 	} else {
 		if (ship_find_exited_ship_by_name(ship_name) >= 0 && !(Game_mode & GM_MULTIPLAYER)) {
 			Warning(LOCATION, "Newly-arrived ship %s has been given the same name as a ship previously destroyed in-mission. This can cause unpredictable SEXP behavior. Correct your mission file or scripts to prevent duplicates.", ship_name);
@@ -10118,6 +10126,41 @@ static void ship_model_change(int n, int ship_type)
 
 	pm = model_get(sip->model_num);
 	Objects[sp->objnum].radius = model_get_radius(pm->id);
+
+	// Goober5000 - deal with texture replacement by re-applying the same code we used during parsing
+	// wookieejedi - replacement textures are loaded in mission parse, so need to load any new textures here
+	if ( !sip->replacement_textures.empty() ) {
+
+		// clear and reset replacement textures because the new positions may be different
+		if (sp->ship_replacement_textures == nullptr)
+			sp->ship_replacement_textures = (int*)vm_malloc(MAX_REPLACEMENT_TEXTURES * sizeof(int));
+		for (auto k = 0; k < MAX_REPLACEMENT_TEXTURES; k++)
+			sp->ship_replacement_textures[k] = -1;
+
+		// now fill them in according to texture name
+		for (const auto& tr : sip->replacement_textures) {
+			// look for textures
+			for (auto j = 0; j < pm->n_textures; j++) {
+
+				texture_map* tmap = &pm->maps[j];
+				int tnum = tmap->FindTexture(tr.old_texture);
+
+				if (tnum > -1) {
+					// load new texture
+					int new_tex = bm_load_either(tr.new_texture);
+					if (new_tex > -1) {
+						sp->ship_replacement_textures[j * TM_NUM_TYPES + tnum] = new_tex;
+					}
+				}
+			}
+		}
+	} else {
+		// ensure that any texture replacements are cleared from old ship 
+		if (sp->ship_replacement_textures != nullptr) {
+			vm_free(sp->ship_replacement_textures);
+			sp->ship_replacement_textures = nullptr;
+		}
+	}
 
 	// page in nondims in game
 	if ( !Fred_running )
@@ -10312,6 +10355,13 @@ void change_ship_type(int n, int ship_type, int by_sexp)
 	int num_saved_subsystems = 0;
 	char **subsys_names = new char *[sip_orig->n_subsystems];
 	float *subsys_pcts = new float[sip_orig->n_subsystems];
+
+	// prevent crashes in the event of a subsystem mismatch
+	for (i = 0; i < sip_orig->n_subsystems; ++i)
+	{
+		subsys_names[i] = nullptr;
+		subsys_pcts[i] = 0.0f;
+	}
 
 	ss = GET_FIRST(&sp->subsys_list);
 	while ( ss != END_OF_LIST(&sp->subsys_list) )
@@ -10803,37 +10853,14 @@ void change_ship_type(int n, int ship_type, int by_sexp)
 			sp->orders_accepted = new_defaults;
 	}
 
-	// Goober5000 - deal with texture replacement by re-applying the same code we used during parsing
-	if (sp->ship_replacement_textures != nullptr)
-	{
-		// clear them out because the new positions may be different
-		for (i = 0; i < MAX_REPLACEMENT_TEXTURES; i++)
-			sp->ship_replacement_textures[i] = -1;
-
-		if (p_objp != nullptr) 
-		{
-			// now fill them in according to texture name
-			for (const auto &tr : p_objp->replacement_textures)
-			{
-				int j;
-				polymodel* pm = model_get(sip->model_num);
-
-				// look for textures
-				for (j = 0; j < pm->n_textures; j++)
-				{
-					texture_map* tmap = &pm->maps[j];
-
-					int tnum = tmap->FindTexture(tr.old_texture);
-					if (tnum > -1)
-						sp->ship_replacement_textures[j * TM_NUM_TYPES + tnum] = tr.new_texture_id;
-				}
-			}
-		}
-	}
-
 	if (sip->uses_team_colors)
 	{
-		sp->team_name = sip->default_team_name;
+		// wookieejedi - maintain team color setting if possible
+		if (!p_objp->team_color_setting.empty()) {
+			sp->team_name = p_objp->team_color_setting;
+		} else {
+			sp->team_name = sip->default_team_name;
+		}
 	}
 }
 
@@ -11288,8 +11315,9 @@ int ship_fire_primary(object * obj, int force, bool rollback_shot)
 		return 0;
 	}	
 
-	// If the primaries have been locked, bail
-	if (shipp->flags[Ship_Flags::Primaries_locked])
+	// If the primaries have been locked, bail. 
+	// Unless we're dealing with the player and their ship has the flag set to allow fail sounds when firing locked primaries.
+	if (shipp->flags[Ship_Flags::Primaries_locked] && ! (obj == Player_obj && shipp->flags[Ship_Flags::Fail_sound_locked_primary]))
 	{
 		return 0;
 	}
@@ -11514,6 +11542,15 @@ int ship_fire_primary(object * obj, int force, bool rollback_shot)
 		}else{
 			swp->next_primary_fire_stamp[bank_to_fire] = timestamp((int)(next_fire_delay));
 			swp->last_primary_fire_stamp[bank_to_fire] = timestamp();
+		}
+
+
+		// The player is trying to fire primaries which are locked. We've set the Fail_sound_locked_primaries flag, so it should make the fail sound.
+		if  (obj == Player_obj && shipp->flags[Ship_Flags::Primaries_locked] && shipp->flags[Ship_Flags::Fail_sound_locked_primary])
+		{					
+			ship_maybe_do_primary_fail_sound_hud(false);
+			ship_stop_fire_primary_bank(obj, bank_to_fire);
+			continue;
 		}
 
 		// Here is where we check if weapons subsystem is capable of firing the weapon.
@@ -12047,8 +12084,8 @@ int ship_fire_primary(object * obj, int force, bool rollback_shot)
 
 		if (Script_system.IsActiveAction(CHA_ONWPFIRED) || Script_system.IsActiveAction(CHA_PRIMARYFIRE)) {
 			Script_system.SetHookObjects(2, "User", objp, "Target", target);
-			Script_system.RunCondition(CHA_ONWPFIRED, objp, 1);
-			Script_system.RunCondition(CHA_PRIMARYFIRE, objp);
+			Script_system.RunCondition(CHA_ONWPFIRED, objp, nullptr, 1);
+			Script_system.RunCondition(CHA_PRIMARYFIRE, objp, nullptr);
 			Script_system.RemHookVars({"User", "Target"});
 		}
 	}
@@ -12247,7 +12284,7 @@ int ship_fire_secondary( object *obj, int allow_swarm, bool rollback_shot )
 	}
 
 	// If the secondaries have been locked, bail
-	if (shipp->flags[Ship_Flags::Secondaries_locked])
+	if (shipp->flags[Ship_Flags::Secondaries_locked] && !(obj == Player_obj && shipp->flags[Ship_Flags::Fail_sound_locked_secondary]))
 	{
 		return 0;
 	}
@@ -12437,6 +12474,10 @@ int ship_fire_secondary( object *obj, int allow_swarm, bool rollback_shot )
 	// Here is where we check if weapons subsystem is capable of firing the weapon.
 	// do only in single player or if I am the server of a multiplayer game
 	if ( !(Game_mode & GM_MULTIPLAYER) || MULTIPLAYER_MASTER ) {
+		if (shipp->flags[Ship_Flags::Secondaries_locked] && (obj == Player_obj && shipp->flags[Ship_Flags::Fail_sound_locked_secondary])) {
+			ship_maybe_do_secondary_fail_sound_hud(wip, false);
+			goto done_secondary;
+		}
 		if ( ship_weapon_maybe_fail(shipp) ) {
 			if ( obj == Player_obj ) 
 				if ( ship_maybe_do_secondary_fail_sound_hud(wip, false) ) {
@@ -12745,8 +12786,8 @@ done_secondary:
 
 		if (Script_system.IsActiveAction(CHA_ONWPFIRED) || Script_system.IsActiveAction(CHA_SECONDARYFIRE)) {
 			Script_system.SetHookObjects(2, "User", objp, "Target", target);
-			Script_system.RunCondition(CHA_ONWPFIRED, objp);
-			Script_system.RunCondition(CHA_SECONDARYFIRE, objp);
+			Script_system.RunCondition(CHA_ONWPFIRED, objp, nullptr, 2);
+			Script_system.RunCondition(CHA_SECONDARYFIRE, objp, nullptr);
 			Script_system.RemHookVars({"User", "Target"});
 		}
 	}
@@ -13007,8 +13048,8 @@ int ship_select_next_primary(object *objp, int direction)
 
 		if (Script_system.IsActiveAction(CHA_ONWPSELECTED) || Script_system.IsActiveAction(CHA_ONWPDESELECTED)) {
 			Script_system.SetHookObjects(2, "User", objp, "Target", target);
-			Script_system.RunCondition(CHA_ONWPSELECTED, objp);
-			Script_system.RunCondition(CHA_ONWPDESELECTED, objp);
+			Script_system.RunCondition(CHA_ONWPSELECTED, objp, nullptr, 1);
+			Script_system.RunCondition(CHA_ONWPDESELECTED, objp, nullptr, 1);
 			Script_system.RemHookVars({"User", "Target"});
 		}
 
@@ -13111,8 +13152,8 @@ int ship_select_next_secondary(object *objp)
 
 			if (Script_system.IsActiveAction(CHA_ONWPSELECTED) || Script_system.IsActiveAction(CHA_ONWPDESELECTED)) {
 				Script_system.SetHookObjects(2, "User", objp, "Target", target);
-				Script_system.RunCondition(CHA_ONWPSELECTED, objp);
-				Script_system.RunCondition(CHA_ONWPDESELECTED, objp);
+				Script_system.RunCondition(CHA_ONWPSELECTED, objp, nullptr, 2);
+				Script_system.RunCondition(CHA_ONWPDESELECTED, objp, nullptr, 2);
 				Script_system.RemHookVars({"User", "Target"});
 			}
 
@@ -20136,4 +20177,57 @@ bool ship_stop_secondary_fire(object* objp)
 
 bool ship_secondary_has_ammo(ship_weapon* swp, int bank_index) {
 	return swp->secondary_bank_ammo[bank_index] > 0 || Weapon_info[swp->secondary_bank_weapons[bank_index]].wi_flags[Weapon::Info_Flags::SecondaryNoAmmo];
+}
+
+
+
+/**
+ * Determine if ship visible on radar
+ *
+ * @return 0 - not visible
+ * @return 1 - marginally targetable (jiggly on radar)
+ * @return 2 - fully targetable
+ */
+int ship_check_visibility(const ship* viewed, ship* viewer)
+{
+	if (!viewer) {
+		// if the second argument is not supplied, default to the player, per retail
+		if (Game_mode & GM_MULTIPLAYER) {
+			mprintf(("In multiplayer shared_check_ship_visibility must have two arguments!  Defaulting to the first "
+					 "player.\n"));
+
+			// to make allowances for buggy missions (such as retail), just pick the first player
+			// if we actually have no valid players, viewer_shipp will be NULL, but that's ok
+			for (int i = 0; i < MAX_PLAYERS; ++i) {
+				int shipnum = multi_get_player_ship(i);
+				if (shipnum >= 0) {
+					viewer = &Ships[shipnum];
+					break;
+				}
+			}
+		} else
+			viewer = Player_ship;
+	}
+
+	object* viewed_obj = &Objects[viewed->objnum];
+	int ship_is_visible = 0;
+	//There are cases where the player is not a ship, so the above logic could result in still not having any valid ship pointer.
+	if(!viewer)
+		return ship_is_visible;
+	// get ship's *radar* visiblity
+	if (ship_is_visible_by_team(viewed_obj, viewer)) {
+		ship_is_visible = 2;
+	}
+
+	// only check awacs level if ship is not visible by team
+	if (!ship_is_visible) {
+		float awacs_level = awacs_get_level(viewed_obj, viewer);
+		if (awacs_level >= 1.0f) {
+			ship_is_visible = 2;
+		} else if (awacs_level > 0) {
+			ship_is_visible = 1;
+		}
+	}
+
+	return ship_is_visible;
 }
