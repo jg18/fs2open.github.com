@@ -328,7 +328,9 @@ int sexp_tree::load_branch(int index, int parent) {
 				get_combined_variable_name(combined_var_name, Sexp_nodes[index].text);
 				set_node(cur, (SEXPT_VARIABLE | SEXPT_STRING | additional_flags), combined_var_name);
 			}  else if (is_container_argument(cur)) {
-				Assert(!(additional_flags & SEXPT_MODIFIER));
+				Assertion(!(additional_flags & SEXPT_MODIFIER),
+					"Found a container name node %s that is also a container modifier. Please report!",
+					Sexp_nodes[index].text);
 				// if the if-condition is false, then then the SEXP argument is invalid
 				// but check_sexp_syntax() will catch that
 				if (get_sexp_container(Sexp_nodes[index].text) != nullptr) {
@@ -341,7 +343,9 @@ int sexp_tree::load_branch(int index, int parent) {
 
 		} else if (Sexp_nodes[index].subtype == SEXP_ATOM_CONTAINER) {
 			cur = allocate_node(parent);
-			Assertion(get_sexp_container(Sexp_nodes[index].text) != nullptr, "Attempt to load unknown container %s into SEXP tree!", Sexp_nodes[index].text);
+			Assertion(get_sexp_container(Sexp_nodes[index].text) != nullptr,
+				"Attempt to load unknown container %s into SEXP tree. Please report!",
+				Sexp_nodes[index].text);
 			set_node(cur, (SEXPT_CONTAINER_DATA | SEXPT_STRING | additional_flags), Sexp_nodes[index].text);
 			load_branch(Sexp_nodes[index].first, cur);  // container is new parent now
 
@@ -416,7 +420,7 @@ int sexp_tree::save_branch(int cur, int at_root) {
 			}
 		} else if (tree_nodes[cur].type & SEXPT_CONTAINER_DATA) {
 			Assertion(get_sexp_container(tree_nodes[cur].text) != nullptr,
-				"Attempt to save unknown container %s from SEXP tree!",
+				"Attempt to save unknown container %s from SEXP tree. Please report!",
 				tree_nodes[cur].text);
 			node = alloc_sexp(tree_nodes[cur].text, SEXP_ATOM, SEXP_ATOM_CONTAINER, save_branch(tree_nodes[cur].child), -1);
 		} else if (tree_nodes[cur].type & SEXPT_NUMBER) {
@@ -1004,7 +1008,9 @@ int sexp_tree::add_default_operator(int op_index, int argnum) {
 			add_variable_data(node_text, type);
 		}
 		else if (item.type & SEXPT_CONTAINER_NAME) {
-			Assert(is_container_opf_type(op_type));
+			Assertion(is_container_opf_type(op_type),
+				"Attempt to add default container name for a node of non-container type (%d). Please report!",
+				op_type);
 			add_container_name(item.text.c_str());
 		}
 			// modify-variable data type depends on type of variable being modified
@@ -1746,8 +1752,10 @@ int sexp_tree::add_variable_data(const char* new_data, int type) {
 // add a container name node under operator pointed to by item_index
 int sexp_tree::add_container_name(const char* container_name)
 {
-	Assert(container_name != nullptr);
-	Assert(get_sexp_container(container_name) != nullptr);
+	Assertion(container_name != nullptr, "Attempt to add null container name. Please report!");
+	Assertion(get_sexp_container(container_name) != nullptr,
+		"Attempt to add unknown container name %s. Please report!",
+		container_name);
 
 	expand_operator(item_index);
 	int node = allocate_node(item_index);
@@ -1762,8 +1770,10 @@ int sexp_tree::add_container_name(const char* container_name)
 // add a (container) data node under operator pointed to by item_index
 void sexp_tree::add_container_data(const char* container_name)
 {
-	Assert(container_name != nullptr);
-	Assert(get_sexp_container(container_name) != nullptr);
+	Assertion(container_name != nullptr, "Attempt to add null container. Please report!");
+	Assertion(get_sexp_container(container_name) != nullptr,
+		"Attempt to add unknown container %s. Please report!",
+		container_name);
 	const int node = allocate_node(item_index);
 	set_node(node, (SEXPT_VALID | SEXPT_CONTAINER_DATA | SEXPT_STRING), container_name);
 	tree_nodes[node].handle = insert(container_name, NodeImage::CONTAINER_DATA, tree_nodes[item_index].handle);
@@ -2348,7 +2358,9 @@ void sexp_tree::replace_container_data(const sexp_container &container,
 		if (container.is_list()) {
 			const auto *p_old_container = get_sexp_container(tree_nodes[item_index].text);
 
-			Assert(p_old_container != nullptr);
+			Assertion(p_old_container != nullptr,
+				"Attempt to Replace Container Data of unknown previous container %s. Please report!",
+				tree_nodes[item_index].text);
 
 			if (p_old_container->is_list()) {
 				// TODO: check for strictly typed data here
@@ -2410,9 +2422,6 @@ void sexp_tree::add_default_modifier(const sexp_container &container)
 	} else {
 		UNREACHABLE("Unknown container type %d", (int)container.type);
 	}
-
-	// type should include exactly one
-	Assert((type_to_use & SEXPT_STRING) ^ (type_to_use & SEXPT_NUMBER));
 
 	item.type = type_to_use;
 	add_data(item.text.c_str(), item.type);
@@ -4917,11 +4926,15 @@ sexp_list_item *sexp_tree::get_listing_opf_sexp_containers(ContainerType con_typ
 
 sexp_list_item *sexp_tree::get_container_modifiers(int con_data_node) const
 {
-	Assert(con_data_node != -1);
-	Assert(tree_nodes[con_data_node].type & SEXPT_CONTAINER_DATA);
+	Assertion(con_data_node != -1, "Attempt to get modifiers for invalid container node. Please report!");
+	Assertion(tree_nodes[con_data_node].type & SEXPT_CONTAINER_DATA,
+		"Attempt to get modifiers for non-container data node %s. Please report!",
+		tree_nodes[con_data_node].text);
 
 	const auto *p_container = get_sexp_container(tree_nodes[con_data_node].text);
-	Assert(p_container);
+	Assertion(p_container,
+		"Attempt to get modifiers for unknown container %s. Please report!",
+		tree_nodes[con_data_node].text);
 	const auto &container = *p_container;
 
 	sexp_list_item head;
@@ -4964,13 +4977,20 @@ sexp_list_item *sexp_tree::get_map_container_modifiers(int con_data_node) const
 {
 	sexp_list_item head;
 
-	Assert(tree_nodes[con_data_node].type & SEXPT_CONTAINER_DATA);
+	Assertion(tree_nodes[con_data_node].type & SEXPT_CONTAINER_DATA,
+		"Found map modifier for non-container data node %s. Please report!",
+		tree_nodes[con_data_node].text);
 
 	const auto *p_container = get_sexp_container(tree_nodes[con_data_node].text);
-	Assert(p_container != nullptr);
+	Assertion(p_container != nullptr,
+		"Found map modifier for unknown container %s. Please report!",
+		tree_nodes[con_data_node].text);
 
 	const auto &container = *p_container;
-	Assert(container.is_map());
+	Assertion(container.is_map(),
+		"Found map modifier for non-map container %s with type %d. Please report!",
+		tree_nodes[con_data_node].text,
+		(int)container.type);
 
 	int type = SEXPT_VALID | SEXPT_MODIFIER;
 	if (any(container.type & ContainerType::STRING_KEYS)) {
@@ -4992,8 +5012,11 @@ sexp_list_item *sexp_tree::get_map_container_modifiers(int con_data_node) const
 // the value could be either string or number, checked in-mission
 sexp_list_item *sexp_tree::get_container_multidim_modifiers(int con_data_node) const
 {
-	Assert(con_data_node != -1);
-	Assert(tree_nodes[con_data_node].type & SEXPT_CONTAINER_DATA);
+	Assertion(con_data_node != -1,
+		"Attempt to get multidimensional modifiers for invalid container node. Please report!");
+	Assertion(tree_nodes[con_data_node].type & SEXPT_CONTAINER_DATA,
+		"Attempt to get multidimensional modifiers for non-container data node %s. Please report!",
+		tree_nodes[con_data_node].text);
 
 	sexp_list_item head;
 
@@ -5003,7 +5026,6 @@ sexp_list_item *sexp_tree::get_container_multidim_modifiers(int con_data_node) c
 
 	// the FREDder might want to use a list modifier
 	sexp_list_item *list = get_list_container_modifiers();
-	Assert(list);
 
 	head.add_list(list);
 
@@ -5013,7 +5035,8 @@ sexp_list_item *sexp_tree::get_container_multidim_modifiers(int con_data_node) c
 // given a node's parent, check if node is eligible for being used with the special argument
 bool sexp_tree::is_node_eligible_for_special_argument(int parent_node) const
 {
-	Assert(parent_node != -1);
+	Assertion(parent_node != -1,
+		"Attempt to access invalid parent node for special arg eligibility check. Please report!");
 
 	const int w_arg = find_ancestral_argument_number(OP_WHEN_ARGUMENT, parent_node);
 	const int e_arg = find_ancestral_argument_number(OP_EVERY_TIME_ARGUMENT, parent_node);
@@ -5179,8 +5202,9 @@ int sexp_tree::get_loadout_variable_count(int var_index) {
 
 bool sexp_tree::is_container_argument(int node) const
 {
-	Assert(node >= 0);
-	Assert(node < (int)tree_nodes.size());
+	Assertion(node >= 0 && node < (int)tree_nodes.size(),
+		"Attempt to check if out-of-range node %d is a container name argument. Please report!",
+		node);
 
 	if (tree_nodes[node].parent == -1) {
 		return false;
@@ -5341,7 +5365,11 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 					tree_nodes[parent].text);
 				op_type = p_container->opf_type;
 			}
-			Assert(op_type > 0);
+			Assertion(op_type > 0,
+				"Could not find valid operand type for node %s with type %d (op %d). Please report!",
+				tree_nodes[parent].text,
+				tree_nodes[parent].type,
+				op);
 
 			// special case don't allow replace data for variable names
 			// Goober5000 - why?  the only place this happens is when replacing the ambiguous argument in
@@ -5723,11 +5751,15 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 	if (tree_nodes[item_index].type & SEXPT_CONTAINER_DATA) {
 		// using local var for add count to avoid breaking implicit assumptions about Add_count
 		const int modifier_node = tree_nodes[item_index].child;
-		Assert(modifier_node != -1);
+		Assertion(modifier_node != -1,
+			"No modifier found for container data node %s. Please report!",
+			tree_nodes[item_index].text);
 		const int modifier_add_count = count_args(modifier_node);
 
 		const auto *p_container = get_sexp_container(tree_nodes[item_index].text);
-		Assert(p_container);
+		Assertion(p_container,
+			"Found modifier for unknown container %s. Please report!",
+			tree_nodes[item_index].text);
 
 		if (modifier_add_count == 1 && p_container->is_list() &&
 			get_list_modifier(tree_nodes[modifier_node].text) == ListModifier::AT_INDEX) {
@@ -5741,7 +5773,6 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 			// the next thing we want to add could literally be any legal key for any map or the legal entries for a list container
 			// so give the FREDder a hand and offer the list modifiers, but only the FREDder can know if they're relevant
 			list = get_container_multidim_modifiers(item_index);
-			Assert(list);
 
 			if (list) {
 				sexp_list_item *ptr = nullptr;
@@ -5870,7 +5901,10 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 			}
 		} else if ((tree_nodes[parent].type & SEXPT_CONTAINER_DATA) && (item_index == first_arg)) {
 			// a container data node's initial modifier can't be deleted
-			Assert(tree_nodes[item_index].type & SEXPT_MODIFIER);
+			Assertion(tree_nodes[item_index].type & SEXPT_MODIFIER,
+				"Container data %s node's first modifier %s is not a modifier. Please report!",
+				tree_nodes[parent].text,
+				tree_nodes[item_index].text);
 			delete_act->setEnabled(false);
 		}
 
@@ -5899,9 +5933,13 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 
 			type = query_operator_argument_type(op, Replace_count); // check argument type at this position
 		} else {
-			Assert(tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+			Assertion(tree_nodes[parent].type& SEXPT_CONTAINER_DATA,
+				"Unknown SEXP operator %s. Please report!",
+				tree_nodes[parent].text);
 			const auto *p_container = get_sexp_container(tree_nodes[parent].text);
-			Assert(p_container != nullptr);
+			Assertion(p_container != nullptr,
+				"Found modifier for unknown container %s. Please report!",
+				tree_nodes[parent].text);
 			type = p_container->opf_type;
 		}
 
@@ -5913,7 +5951,9 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 		// Container modifiers use their own list of possible arguments
 		if (tree_nodes[item_index].type & SEXPT_MODIFIER) {
 			const auto *p_container = get_sexp_container(tree_nodes[parent].text);
-			Assert(p_container != nullptr);
+			Assertion(p_container != nullptr,
+				"Found modifier for unknown container %s. Please report!",
+				tree_nodes[parent].text);
 			const int first_modifier = tree_nodes[parent].child;
 			if (Replace_count == 1 && p_container->is_list() &&
 				get_list_modifier(tree_nodes[first_modifier].text) == ListModifier::AT_INDEX) {
@@ -6024,11 +6064,17 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 		}
 
 		if (tree_nodes[item_index].type & SEXPT_MODIFIER) {
-			Assert(tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+			Assertion(tree_nodes[parent].type & SEXPT_CONTAINER_DATA,
+				"Attempt to check modifier of non-container node %s. Please report!",
+				tree_nodes[parent].text);
 			const int first_modifier_node = tree_nodes[parent].child;
-			Assert(first_modifier_node != -1);
+			Assertion(first_modifier_node != -1,
+				"Could not find first modifier of container data node %s. Please report!",
+				tree_nodes[parent].text);
 			const auto *p_container = get_sexp_container(tree_nodes[parent].text);
-			Assert(p_container);
+			Assertion(p_container,
+				"Attempt to get first modifier for unknown container %s. Please report!",
+				tree_nodes[parent].text);
 			const auto &container = *p_container;
 
 			if (Replace_count == 0) {
@@ -6094,7 +6140,9 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 	Assert(z >= -1);
 	if (z != -1) {
 		op = get_operator_index(tree_nodes[z].text);
-		Assert(op != -1 || tree_nodes[z].type & SEXPT_CONTAINER_DATA);
+		Assertion(op != -1 || tree_nodes[z].type & SEXPT_CONTAINER_DATA,
+			"Encountered unknown SEXP operator %s. Please report!",
+			tree_nodes[z].text);
 		j = tree_nodes[z].child;
 		count = 0;
 		while (j != item_index) {
@@ -6105,9 +6153,13 @@ std::unique_ptr<QMenu> sexp_tree::buildContextMenu(QTreeWidgetItem* h) {
 		if (op >= 0) {
 			type = query_operator_argument_type(op, count); // check argument type at this position
 		} else {
-			Assert(tree_nodes[parent].type & SEXPT_CONTAINER_DATA);
+			Assertion(tree_nodes[z].type & SEXPT_CONTAINER_DATA,
+				"Unknown SEXP operator %s. Please report!",
+				tree_nodes[z].text);
 			const auto *p_container = get_sexp_container(tree_nodes[z].text);
-			Assert(p_container != nullptr);
+			Assertion(p_container != nullptr,
+				"Found modifier for unknown container %s. Please report!",
+				tree_nodes[z].text);
 			type = p_container->opf_type;
 		}
 
@@ -6431,7 +6483,9 @@ void sexp_tree::pasteActionHandler() {
 	} else if (Sexp_nodes[Sexp_clipboard].subtype == SEXP_ATOM_CONTAINER) {
 		expand_operator(item_index);
 		const auto *p_container = get_sexp_container(Sexp_nodes[Sexp_clipboard].text);
-		Assert(p_container);
+		Assertion(p_container,
+			"Attempt to paste unknown container %s. Please report!",
+			Sexp_nodes[Sexp_clipboard].text);
 		const auto &container = *p_container;
 		// this should always be true, but just in case
 		const bool has_modifiers = (Sexp_nodes[Sexp_clipboard].first != -1);
@@ -6621,7 +6675,9 @@ void sexp_tree::addPasteActionHandler() {
 		} else {
 			// this shouldn't happen, but just in case
 			const auto *p_container = get_sexp_container(Sexp_nodes[Sexp_clipboard].text);
-			Assert(p_container);
+			Assertion(p_container,
+				"Attempt to add-paste unknown container %s. Please report!",
+				Sexp_nodes[Sexp_clipboard].text);
 			add_default_modifier(*p_container);
 		}
 
@@ -6683,27 +6739,31 @@ void sexp_tree::handleReplaceVariableAction(int id) {
 
 }
 void sexp_tree::handleReplaceContainerNameAction(int idx) {
-	Assert(item_index >= 0);
-	Assert(is_container_argument(item_index));
+	Assertion(item_index >= 0, "Attempt to Replace Container Name with no node selected. Please report!");
+	Assertion(is_container_argument(item_index),
+		"Attempt to use Replace Container Name on a node that is not a container name argument. Please report!");
 
 	const auto &containers = get_all_sexp_containers();
-	Assertion((idx >= 0) && (idx < (int)containers.size()),
-		"Unknown Container");
+	Assertion((idx >= 0) && (idx < (int)containers.size()), "Unknown Container Index %d. Please report!", idx);
 
 	const int type = get_type(currentItem());
-	Assert(type & SEXPT_STRING);
+	Assertion(type & SEXPT_STRING,
+		"Attempt to replace container name on non-string node %s with type %d. Please report!",
+		tree_nodes[item_index].text,
+		type);
 
 	replace_container_name(containers[idx]);
 }
 void sexp_tree::handleReplaceContainerDataAction(int idx) {
-	Assert(item_index >= 0);
+	Assertion(item_index >= 0, "Attempt to Replace Container Data with no node selected. Please report!");
 
 	const auto &containers = get_all_sexp_containers();
 	Assertion((idx >= 0) && (idx < (int)containers.size()),
-		"Unknown Container");
+		"Unknown Container index %d. Please report!", idx);
 
 	int type = get_type(currentItem());
-	Assert((type & SEXPT_NUMBER) || (type & SEXPT_STRING));
+	Assertion((type & SEXPT_NUMBER) || (type & SEXPT_STRING),
+		"Attempt to use Replace Container Data on a non-data node. Please report!");
 
 	// variable/container name don't mix with container data
 	// DISCUSSME: what about variable name as SEXP arg type?
